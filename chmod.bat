@@ -950,6 +950,9 @@ exit /b 0
 
 :show_version
 echo chmod %CHMOD_VERSION%
+echo 作成: ChatGPT 5.6 Sol High
+echo 企画・仕様設計: Osamix
+echo GitHub: https://github.com/Osamix2000/chmod-for-windows
 exit /b 0
 
 
@@ -1004,7 +1007,8 @@ echo   chmod -R --preserve-root 755 "C:/tools/bin"
 echo.
 echo Windows ACLとの対応:
 echo   u = 現在のユーザー
-echo   g = BUILTIN\UsersおよびAuthenticated Usersを基準に近似
+echo   g = BUILTIN\Usersを基準に近似
+echo       ACL読み取り時はAuthenticated Usersも考慮
 echo   o = Everyone
 echo   whoを省略したシンボリックMODEはWindowsにPOSIX umaskがないためaとして扱います。
 echo.
@@ -1012,5 +1016,10 @@ echo 注意:
 echo   setuid、setgid、sticky bitにはWindows ACL上の直接対応がないため未対応です。
 echo   u/g/oから権限をコピーするg=u等は現在未対応です。
 echo   Windows ACLはPOSIX permissionと構造が異なるため、一部のACLは近似になります。
+echo   Windows版coreutils等のls -laで表示されるrwxは、NTFS ACLの変更を
+echo   GNU/Linuxと同じ意味では反映しない場合があります。
+echo   実際のWindows ACLはicacls FILEで確認してください。
 echo   ACL変更前にicaclsでバックアップし、途中失敗時は可能な範囲で自動復元します。
+echo.
+echo chmod for Windowsの詳細なヘルプ: https://github.com/Osamix2000/chmod-for-windows/blob/main/README.md
 exit /b 0
