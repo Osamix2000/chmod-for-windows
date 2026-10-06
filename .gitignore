@@ -1,0 +1,156 @@
+# ============================================================
+# chmod-for-windows
+# Repository ignore rules
+# ============================================================
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+Desktop.ini
+$RECYCLE.BIN/
+System Volume Information/
+*.lnk
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+
+# Linux desktop / filesystem metadata
+.directory
+.Trash-*
+.fuse_hidden*
+.nfs*
+*~
+
+# Visual Studio / VS Code
+.vs/
+.vscode/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# JetBrains IDEs
+.idea/
+*.iml
+
+# Vim
+*.swp
+*.swo
+*.swn
+*.un~
+Session.vim
+.netrwhist
+
+# Generic editor / temporary / backup files
+*.tmp
+*.temp
+*.bak
+*.backup
+*.old
+*.orig
+*.rej
+*.save
+*.autosave
+*.copy
+*.cache
+*.lock
+*.pid
+*.seed
+*.pid.lock
+~$*
+
+# Logs / crash dumps
+*.log
+*.dmp
+*.mdmp
+*.stackdump
+crash.log
+
+# Local test / scratch directories
+tmp/
+temp/
+test-output/
+scratch/
+
+# Build / generated output
+build/
+out/
+obj/
+Debug/
+Release/
+x64/
+x86/
+coverage/
+htmlcov/
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+.venv/
+venv/
+env/
+
+# Node.js artifacts
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# .NET / NuGet artifacts
+packages/
+*.nupkg
+*.snupkg
+
+# Archives generated locally
+*.7z
+*.zip
+*.rar
+*.tar
+*.tar.gz
+*.tgz
+*.tar.xz
+*.txz
+*.tar.zst
+*.zst
+
+# Local environment / credentials
+.env
+.env.*
+!.env.example
+
+# SSH / private keys and certificates containing private keys
+*.key
+*.pem
+*.ppk
+*.pfx
+*.p12
+id_rsa
+id_rsa.*
+id_dsa
+id_dsa.*
+id_ecdsa
+id_ecdsa.*
+id_ed25519
+id_ed25519.*
+
+# Local Windows command files that are not repository sources
+*.cmd.local
+*.bat.local
