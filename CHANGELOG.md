@@ -8,7 +8,16 @@
 
 ### Added
 
-- なし
+- `.docs/icacls.md`を追加し、Windows Security Descriptor、DACL/SACL/ACE、継承、Owner、MIC、UAC、特権、File System差、`icacls`全般の仕様・注意点を整理
+- `.docs/chmod.md`を追加し、POSIX/GNU `chmod`のnumeric/symbolic MODE、umask、`X`、special bits、recursive、symlink、GNU拡張等を整理
+- `.docs/README.md`を追加し、仕様調査ドキュメントの索引と情報源優先順位を整理
+- ルート`AGENTS.md`を追加し、GNU/POSIXとWindows ACLの仕様を混同しない為の開発・検証・安全ルールを定義
+
+### Documentation
+
+- Microsoft LearnとWindows実機`icacls /?`で継承オプション表記に差がある点を記録し、実機検証待ち事項として整理
+- `icacls /save`をSecurity Descriptor完全バックアップではなくDACLバックアップとして扱う方針を明確化
+- GNU `chmod`互換部分、Windows近似部分、本プロジェクト独自仕様を区別する設計方針を文書化
 
 ## [v1.0.1] - 2026-10-14
 
