@@ -1,7 +1,7 @@
 @echo off
 setlocal EnableExtensions DisableDelayedExpansion
 
-set "CHMOD_VERSION=v1.0.0"
+set "CHMOD_VERSION=v1.0.1"
 set "RECURSIVE=0"
 set "VERBOSE=0"
 set "CHANGES_ONLY=0"
@@ -633,6 +633,7 @@ if not exist "%CURRENT%" exit /b 1
 for %%I in ("%CURRENT%") do set "CURRENT_ATTR=%%~aI"
 set "IS_DIR=0"
 if "%CURRENT_ATTR:~0,1%"=="d" set "IS_DIR=1"
+set "WINDOWS_ACL_RESET=0"
 
 set "HAVE_OLD_MODE=0"
 call :get_pseudo_mode
@@ -678,15 +679,26 @@ call :permission_from_digit "%NEW_U%" PERM_U "%IS_DIR%"
 call :permission_from_digit "%NEW_G%" PERM_G "%IS_DIR%"
 call :permission_from_digit "%NEW_O%" PERM_O "%IS_DIR%"
 
-rem 操作中に自分自身を締め出さないため、一時的に現在ユーザーへFull Controlを付与する。
+if "%IS_DIR%"=="1" (
+	call :apply_directory_acl
+) else (
+	call :apply_file_acl
+)
+if errorlevel 1 exit /b 1
+
+if "%WINDOWS_ACL_RESET%"=="1" (
+	if "%VERBOSE%"=="1" echo permissions of "%CURRENT%" reset to inherited Windows ACL
+	if "%CHANGES_ONLY%"=="1" echo permissions of "%CURRENT%" reset to inherited Windows ACL
+	exit /b 0
+)
+
+if "%VERBOSE%"=="1" goto :apply_file_acl
+if "%RECURSIVE%"=="1" if "%ROOT_IS_DIR%"=="1" if "%MODE_TYPE%"=="NUMERIC" if "%NEW_MODE%"=="777" goto :restore_file_acl
+
 "%SystemRoot%\System32\icacls.exe" "%CURRENT%" /grant:r "%SID_USER%:F" /Q >nul 2>&1
 if errorlevel 1 exit /b 1
-
-rem Linux chmodに近づけるため、親から継承したACLを切り離して削除する。
 "%SystemRoot%\System32\icacls.exe" "%CURRENT%" /inheritance:r /Q >nul 2>&1
 if errorlevel 1 exit /b 1
-
-rem Windowsで広く使われる既定主体を一旦除去し、u/g/oとして再構成する。
 "%SystemRoot%\System32\icacls.exe" "%CURRENT%" /remove "%SID_USERS%" "%SID_EVERYONE%" "%SID_AUTHENTICATED%" "%SID_ADMINISTRATORS%" "%SID_SYSTEM%" /Q >nul 2>&1
 if errorlevel 1 exit /b 1
 
@@ -694,12 +706,10 @@ if defined PERM_O (
 	"%SystemRoot%\System32\icacls.exe" "%CURRENT%" /grant:r "%SID_EVERYONE%:%PERM_O%" /Q >nul 2>&1
 	if errorlevel 1 exit /b 1
 )
-
 if defined PERM_G (
 	"%SystemRoot%\System32\icacls.exe" "%CURRENT%" /grant:r "%SID_USERS%:%PERM_G%" /Q >nul 2>&1
 	if errorlevel 1 exit /b 1
 )
-
 if defined PERM_U (
 	"%SystemRoot%\System32\icacls.exe" "%CURRENT%" /grant:r "%SID_USER%:%PERM_U%" /Q >nul 2>&1
 	if errorlevel 1 exit /b 1
@@ -707,8 +717,64 @@ if defined PERM_U (
 	"%SystemRoot%\System32\icacls.exe" "%CURRENT%" /remove "%SID_USER%" /Q >nul 2>&1
 	if errorlevel 1 exit /b 1
 )
+exit /b 0
 
-if "%VERBOSE%"=="1" goto :report_result
+:restore_file_acl
+"%SystemRoot%\System32\icacls.exe" "%CURRENT%" /inheritance:e /Q >nul 2>&1
+if errorlevel 1 exit /b 1
+"%SystemRoot%\System32\icacls.exe" "%CURRENT%" /reset /Q >nul 2>&1
+if errorlevel 1 exit /b 1
+set "WINDOWS_ACL_RESET=1"
+exit /b 0
+
+:apply_directory_acl
+if "%MODE_TYPE%"=="NUMERIC" if "%NEW_MODE%"=="777" goto :restore_directory_acl
+
+"%SystemRoot%\System32\icacls.exe" "%CURRENT%" /grant:r "%SID_USER%:F" /Q >nul 2>&1
+if errorlevel 1 exit /b 1
+"%SystemRoot%\System32\icacls.exe" "%CURRENT%" /inheritance:r /Q >nul 2>&1
+if errorlevel 1 exit /b 1
+"%SystemRoot%\System32\icacls.exe" "%CURRENT%" /remove "%SID_USERS%" "%SID_EVERYONE%" "%SID_AUTHENTICATED%" "%SID_ADMINISTRATORS%" "%SID_SYSTEM%" /Q >nul 2>&1
+if errorlevel 1 exit /b 1
+
+"%SystemRoot%\System32\icacls.exe" "%CURRENT%" /grant:r "%SID_SYSTEM%:(OI)(CI)F" /Q >nul 2>&1
+if errorlevel 1 exit /b 1
+"%SystemRoot%\System32\icacls.exe" "%CURRENT%" /grant:r "%SID_ADMINISTRATORS%:(OI)(CI)F" /Q >nul 2>&1
+if errorlevel 1 exit /b 1
+
+set "DIR_PERM_O="
+set "DIR_PERM_G="
+set "DIR_PERM_U="
+if defined PERM_O set "DIR_PERM_O=(OI)(CI)%PERM_O%"
+if defined PERM_G set "DIR_PERM_G=(OI)(CI)%PERM_G%"
+if defined PERM_U set "DIR_PERM_U=(OI)(CI)%PERM_U%"
+
+if defined DIR_PERM_O (
+	"%SystemRoot%\System32\icacls.exe" "%CURRENT%" /grant:r "%SID_EVERYONE%:%DIR_PERM_O%" /Q >nul 2>&1
+	if errorlevel 1 exit /b 1
+)
+if defined DIR_PERM_G (
+	"%SystemRoot%\System32\icacls.exe" "%CURRENT%" /grant:r "%SID_USERS%:%DIR_PERM_G%" /Q >nul 2>&1
+	if errorlevel 1 exit /b 1
+)
+if defined DIR_PERM_U (
+	"%SystemRoot%\System32\icacls.exe" "%CURRENT%" /grant:r "%SID_USER%:%DIR_PERM_U%" /Q >nul 2>&1
+	if errorlevel 1 exit /b 1
+) else (
+	"%SystemRoot%\System32\icacls.exe" "%CURRENT%" /remove "%SID_USER%" /Q >nul 2>&1
+	if errorlevel 1 exit /b 1
+)
+exit /b 0
+
+:restore_directory_acl
+"%SystemRoot%\System32\icacls.exe" "%CURRENT%" /inheritance:e /Q >nul 2>&1
+if errorlevel 1 exit /b 1
+"%SystemRoot%\System32\icacls.exe" "%CURRENT%" /reset /Q >nul 2>&1
+if errorlevel 1 exit /b 1
+set "WINDOWS_ACL_RESET=1"
+exit /b 0
+
+:report_result
 if "%CHANGES_ONLY%"=="1" if "%PSEUDO_CHANGED%"=="1" goto :report_result
 exit /b 0
 

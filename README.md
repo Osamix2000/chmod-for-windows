@@ -76,6 +76,8 @@ GNU coreutils 9.12の`chmod`の書式や挙動を参考にしていますが、G
 - Windows Sudoが利用可能な場合の自動再実行
 - SIDを利用したローカライズ非依存のACL操作
 - `cmd.exe`のみで動作し、PowerShell不要
+- ディレクトリでは`(OI)(CI)`付きACEにより子ファイル・子ディレクトリへ権限を継承
+- ディレクトリへの数値MODE `777`でWindows標準のACL継承状態へ復旧
 
 <a id="install"></a>
 ## 📦 インストール
@@ -206,7 +208,7 @@ chmod a+rX directory
 | 指定 | Windows側での扱い |
 |---|---|
 | `u` | 現在のユーザー |
-| `g` | `BUILTIN\Users`および`Authenticated Users`を基準に近似 |
+| `g` | 書き込み時は`BUILTIN\Users`。現在ACLの読み取り時は`Authenticated Users`も考慮 |
 | `o` | `Everyone` |
 | `a` | `u`、`g`、`o`すべて |
 
@@ -327,7 +329,7 @@ Windows Sudoが無効または利用できない場合は、管理者として�
 | POSIX | Windows側 |
 |---|---|
 | `u` | 現在のユーザー |
-| `g` | `BUILTIN\Users`および`Authenticated Users`を基準に近似 |
+| `g` | 書き込み時は`BUILTIN\Users`。現在ACLの読み取り時は`Authenticated Users`も考慮 |
 | `o` | `Everyone` |
 
 > [!NOTE]
@@ -336,6 +338,29 @@ Windows Sudoが無効または利用できない場合は、管理者として�
 Windowsではユーザーが`Users`、`Authenticated Users`、`Everyone`など複数の主体へ同時に所属する為、POSIXの`owner/group/other`のように完全に排他的な3区分にはなりません。
 
 その為、一部の特殊なMODEはWindows ACL上で近似になります。
+
+### ディレクトリのACL継承
+
+ファイルとディレクトリではWindows ACLの継承モデルが異なる為、`v1.0.1`以降は処理を分離しています。
+
+ディレクトリへ`700`、`750`、`755`等を指定した場合は、`u/g/o`に対応するACEへ`(OI)(CI)`を付与し、子ファイル・子ディレクトリへ権限を継承できるようにします。
+
+また、Windows上で管理・復旧経路を失わないよう、ディレクトリでは`SYSTEM`と`Administrators`のFull Controlを維持します。
+
+> [!IMPORTANT]
+> ディレクトリへ数値MODE `777`を指定した場合は、GNU/Linuxの`chmod 777`をそのまま再現するのではなく、**Windows標準のACL継承状態へ戻す復旧操作**として扱います。
+>
+> ```bat
+> chmod 777 "C:/work"
+> ```
+>
+> 既に配下のファイルやサブディレクトリまでACL継承が無効化されている場合は、次のように`-R`を指定してください。
+>
+> ```bat
+> chmod -R 777 "C:/work"
+> ```
+>
+> `-R 777`では配下のファイル・ディレクトリについてもACL継承を再有効化し、親から継承する通常のWindows ACLへ戻します。
 
 <a id="check-permissions"></a>
 ## 🔍 権限の確認方法
@@ -385,6 +410,8 @@ Windows上の実際のアクセス権を確認する場合は`icacls`の結果�
 - `g=u`、`o=g`など、`u/g/o`から別の`u/g/o`へ権限をコピーするMODEは現在未対応です。
 - `u`はファイル所有者ではなく現在のWindowsユーザーとして扱います。
 - `g`と`o`はWindowsグループ/SIDを使用した近似です。
+- ディレクトリへの数値MODE `777`はWindows固有の復旧動作として、親からのACL継承を再有効化します。
+- ディレクトリではWindowsの管理・復旧経路を保持する為、`SYSTEM`と`Administrators`のFull Controlを維持します。
 - Windows ACLをサポートするNTFS等のファイルシステムを前提としています。
 - Windows版coreutilsなどの`ls -la`表示は、実際のWindows ACL確認には使用できない場合があります。
 - システムディレクトリやドライブ全体へ再帰処理を行うとWindowsの動作へ影響する可能性があります。
@@ -427,6 +454,18 @@ chmod u=rw,go=r file
 
 ```bat
 chmod -R a+rX "C:/tools"
+```
+
+### ディレクトリをWindows標準のACL継承状態へ戻す
+
+```bat
+chmod 777 "C:/work"
+```
+
+配下も含めて復旧する場合:
+
+```bat
+chmod -R 777 "C:/work"
 ```
 
 ### MODEが変化した対象だけ表示する
