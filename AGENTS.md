@@ -81,6 +81,8 @@ GitHub API等で更新する際、UTF-8へ暗黙変換しないでください�
 
 変更後は可能ならblob hashまたはraw bytesを確認し、文字化けやLF化がないことを検証してください。
 
+`.gitattributes`の`chmod.bat -text`は、Gitによる改行/文字列変換から配布bytesを保護するためのrelease不変条件です。削除・変更する場合はRaw GitHub payloadのSHA-256まで再検証してください。
+
 MarkdownドキュメントはUTF-8を使用します。
 
 ## Windows ACL設計ルール
@@ -234,6 +236,13 @@ DACL丸ごとコピーとGNU `--reference`のmode copyは別物です。
 - `--upgrade`はhidden扱いとし、通常の`--help`とREADMEのoption一覧には掲載しない
 - hidden aliasを削除・別動作化する場合は明示的な仕様変更として扱う
 
+### 初回bootstrap
+
+- `--update`はv1.0.2で初めて追加された
+- 実際のv1.0.1以前からv1.0.2へは最初の1回だけ手動更新が必要
+- v1.0.2以降のreleaseでは、前versionの**実配布updater**から次versionへのE2Eを必須とする
+- synthetic old versionによるversion比較テストを、実旧versionにupdaterが存在した証拠として扱わない
+
 ### `.update`と`chmod.bat`は同一release単位
 
 公開`main`では次の整合性を常に維持してください。
@@ -282,6 +291,20 @@ v1.0.2では`robocopy /COPY:D`によるdata-only overwriteを使い、既存dest
 
 をWindows実機で確認してください。
 
+### 実行中BAT自己書換え構造を壊さない
+
+v1.0.2はtarget `chmod.bat`を子の一時runnerからdata-only overwriteする。
+
+親`cmd.exe`側では、runner起動後に必要なerror handling、成功表示、cleanup、`exit /b`を**同じ括弧blockの中**へ置き、target上書き前にそのblock全体がparseされる構造を利用している。
+
+この構造は保守上の不変条件とする。
+
+- runner起動後の処理をblock外へ移動しない
+- 単なる可読性改善のため別label/`goto`へ分解しない
+- 更新対象のサイズ・label位置が大きく変わる可能性を前提にする
+- この部分を変更したら、大幅に構造の違うfuture payloadへの自己更新stress testをWindows実機で行う
+- Windows Server 2025で成功を確認済みだが、Microsoftによる自己書換えBATの正式保証とは区別する
+
 ### updater最低テスト
 
 - `--help`に`--update`が存在
@@ -290,13 +313,17 @@ v1.0.2では`robocopy /COPY:D`によるdata-only overwriteを使い、既存dest
 - extra argumentをusage errorとして拒否
 - manifest schema/version/hash不正を拒否
 - network failureを安全に終了
-- downgradeを行わない
+- remote > localでupdate
+- remote < localでdowngradeを行わない
 - same version + same hashはno-op
 - same version + hash mismatchはcanonical payloadで修復
 - SHA-256 mismatchでは適用しない
 - destination DACLを維持
 - post-copy byte verification failureでrollback
+- rollback後bytes/SDDL一致
 - write permission不足で元fileを破損しない
+- Raw GitHub上の公開payload SHA-256と`.update`が一致
+- updater自己書換え構造変更時はstructurally different future payloadへ更新して親process完走を確認
 
 ## 実装ポリシー
 
