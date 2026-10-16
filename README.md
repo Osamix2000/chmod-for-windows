@@ -48,7 +48,7 @@ chmod 600 file
 chmod 755 directory
 chmod +x example.sh
 chmod u+x file
-chmod go-rwx file
+chmod go-rwx private.key
 chmod u=rw,go=r file
 chmod -R a+rX directory
 ```
@@ -181,6 +181,7 @@ chmod 0755 directory
 | `7` | `007` |
 | `77` | `077` |
 | `600` | `600` |
+| `644` | `644` |
 | `755` | `755` |
 | `0755` | `755` |
 
@@ -265,7 +266,7 @@ chmod 600 ~\.ssh\id_ed25519
 空白を含むパスは引用符で囲んでください。
 
 ```bat
-chmod 600 "~/My Keys/private.key"
+chmod 600 "~/My Keys/private_key"
 ```
 
 <a id="options"></a>
@@ -301,6 +302,9 @@ chmod -R --preserve-root 755 "C:/tools"
 ```bat
 chmod --update
 ```
+
+> [!NOTE]
+> `--update`自体は`v1.0.2`で追加された為、`v1.0.1`以前から`v1.0.2`へ移行する最初の1回だけは手動更新が必要です。`v1.0.2`以降から将来versionへの更新で`--update`を利用できます。
 
 更新処理では、リポジトリ`main`ブランチの`.update`と`chmod.bat`をHTTPSで取得し、公開versionとSHA-256を確認してから現在のファイルを更新します。
 
