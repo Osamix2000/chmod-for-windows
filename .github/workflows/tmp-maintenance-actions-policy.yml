@@ -1,0 +1,76 @@
+name: Temporary Actions policy maintenance
+
+on:
+  push:
+    branches:
+      - github/actions
+    paths:
+      - .github/workflows/tmp-maintenance-actions-policy.yml
+
+permissions:
+  contents: write
+
+jobs:
+  maintain:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: github/actions
+          fetch-depth: 0
+
+      - name: Patch AGENTS and README
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(text, old, new, label):
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected 1 match, got {count}')
+              return text.replace(old, new, 1)
+
+          agents_path = Path('AGENTS.md')
+          agents = agents_path.read_text(encoding='utf-8')
+          agents = replace_once(
+              agents,
+              '- `.docs/v1.0.3.md`\n',
+              '- `.docs/v1.0.3.md`\n- `.docs/ci.md`\n',
+              'AGENTS required docs')
+
+          section = '''\n## GitHub Actions / branch運用\n\nGitHub Actions関連の追加・変更・検証は、原則として常設branch **`github/actions`** 上で行ってください。\n\n標準フロー:\n\n```text\nmain\n  ↓ 最新状態を同期\ngithub/actions\n  ↓ workflow / testを追加・変更\nGitHub Actionsで実検証\n  ↓ 全job成功\nmainへ取り込み\n  ↓\nmain上でもCI成功を確認\n```\n\nルール:\n\n- `github/actions`はversion固定ではない常設のActions開発・検証branchとして継続利用する\n- Actions関連の作業開始時は、必要に応じてmainの最新状態を`github/actions`へ同期する\n- 未検証のworkflowをmainへ直接追加しない\n- 常設CIは`.github/workflows/ci.yml`とし、原則`contents: read`でrepositoryを書き換えない\n- `Package / CLI`と`Windows ACL semantics`の両jobが成功してからmainへ取り込む\n- mainへ取り込んだ後もmain pushのCI成功を確認する\n- 特定version専用builder、診断、release payload生成、docs書換え等の一時workflowは常設CIへ混ぜない\n- 一時workflowが必要な場合は`github/actions`上で`tmp-<purpose>.yml`等として作成し、目的完了後に削除する\n- `tmp-v1.0.2-build`のようなversion固定の一時branchを今後の標準開発branchとして再利用しない\n- `chmod --update`のrelease E2Eはmainをcanonical sourceとする通常CIと分離し、前versionの実配布updaterと固定candidateを使うrelease専用検証として扱う\n\n詳細は[`.docs/ci.md`](.docs/ci.md)を参照してください。\n'''
+          if '## GitHub Actions / branch運用' in agents:
+              raise SystemExit('AGENTS Actions section already exists')
+          agents = agents.rstrip() + '\n' + section
+          agents_path.write_text(agents, encoding='utf-8', newline='\n')
+
+          readme_path = Path('README.md')
+          readme = readme_path.read_text(encoding='utf-8')
+          readme = replace_once(
+              readme,
+              '- [🧪 使用例](#examples)\n- [📝 変更履歴](#changelog)\n',
+              '- [🧪 使用例](#examples)\n- [✅ 開発・CI](#ci)\n- [📝 変更履歴](#changelog)\n',
+              'README toc')
+
+          ci_section = '''<a id="ci"></a>\n## ✅ 開発・CI\n\nGitHub ActionsでCP932/CRLF、manifest整合、CLI基本動作、Windows ACLの主要semanticsを継続検証しています。\n\nActions関連の追加・変更は原則`github/actions` branchで実検証し、CI成功後にmainへ取り込みます。詳細な開発運用は[`.docs/ci.md`](.docs/ci.md)を参照してください。\n\n'''
+          readme = replace_once(
+              readme,
+              '<a id="changelog"></a>\n## 📝 変更履歴\n',
+              ci_section + '<a id="changelog"></a>\n## 📝 変更履歴\n',
+              'README CI section')
+          readme_path.write_text(readme, encoding='utf-8', newline='\n')
+          PY
+
+      - name: Commit policy documentation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "おさむぅ～"
+          git config user.email "49814271+Osamix2000@users.noreply.github.com"
+          git add -- AGENTS.md README.md
+          git diff --cached --check
+          git diff --cached --quiet && { echo 'no documentation changes'; exit 1; } || true
+          git commit -m "v1.0.3: GitHub Actions運用ルールを明記"
+          git push origin HEAD:github/actions
