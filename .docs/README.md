@@ -13,9 +13,12 @@
 - [`update.md`](update.md)  
   `--update`自己更新の取得元、manifest、version判定、SHA-256検証、ACL保持、rollback、trust model、リリース時の不変条件。
 
+- [`v1.0.3.md`](v1.0.3.md)  
+  v1.0.1以降のfile/directory制御フロー回帰、v1.0.3のdirectory自身とfuture-child ACL templateを分離する設計、Raw ACL適用方式、Windows PowerShell 5.1依存、Windows Server 2025での検証結果。
+
 ## 読み方
 
-実装変更時は片方だけではなく両方を参照してください。
+一般仕様を確認する場合は`chmod.md`と`icacls.md`を両方参照し、version固有の実装判断は該当version資料も確認してください。
 
 ```text
 GNU/POSIX chmod semantics
@@ -25,6 +28,8 @@ GNU/POSIX chmod semantics
 Windows Security Descriptor / ACL semantics
         ↓
 安全で予測可能な近似を選択
+        ↓
+version固有の実装・実機検証
 ```
 
 このプロジェクトは「GNU chmodをWindowsへ完全移植」するものではありません。
