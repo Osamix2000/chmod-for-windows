@@ -1264,7 +1264,7 @@ exit /b 0
 
 :show_version
 echo chmod %CHMOD_VERSION%
-echo 作成: ChatGPT 5.6 Sol High
+echo 作成: ChatGPT 6 High
 echo 企画・仕様設計: Osamix
 echo GitHub: https://github.com/Osamix2000/chmod-for-windows
 exit /b 0
