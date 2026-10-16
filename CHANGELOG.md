@@ -17,6 +17,36 @@
 - 実行中BAT自己書換えについて、親processの後処理を同一括弧blockへ保持する実装上の不変条件を文書化
 - サイズ・label配置が大幅に異なるsynthetic future payloadへの自己更新stress test成功を記録
 
+## [v1.0.3] - 2026-10-16
+
+### Fixed
+
+- v1.0.1のfile/directory ACL分離時に`:apply_file_acl`ラベルが欠落し、directory ACL適用後に旧file ACL処理へfall-throughし得た制御フロー回帰を修正
+- directoryへ`700`等を適用した際、対象directoryのu/g/o MODE ACEをそのままfuture childへ継承させ、Windows標準の新規child ACLまで制限MODEへ寄せてしまう設計を修正
+- `u=rw,go=r`等の複合symbolic MODEについて、`cmd.exe` / batch引数解析上MODE全体の引用が必要なのにhelp/README例が未引用だった問題を修正
+
+### Changed
+
+- 数値`777`以外のdirectory ACLを、対象自身へ有効なMODE ACEとfuture-child用のWindows inheritance templateへ分離
+- parent directoryの継承可能ACEを`InheritOnly` templateとして保持し、chmod対象自身のeffective accessへ親ACLを漏らさず、将来childへ通常Windows ACLを継承できる構成へ変更
+- directoryでは従来どおり`SYSTEM`と`Administrators`のFull Controlを維持
+- 対象directoryにもともと存在する、本プロジェクト管理SID以外のExplicit ACEを可能な範囲で保持
+- directory Raw ACL再構成ではWindows標準のWindows PowerShell 5.1 / .NET ACL APIと`SetNamedSecurityInfoW`を内部利用
+- file ACL処理、SSH秘密鍵向け`600`等、directory numeric `777`のWindows復旧動作は維持
+- `=`または`,`を含む複合symbolic MODEは、`chmod "u=rw,go=r" file`のようにMODE全体を引用する使用方法を正式に明記
+
+### Validation
+
+- Windows Server 2025 / build 26100 / NTFSでdirectory `700`、既存child、新規child、独自parent inheritable ACE、file `600`、`-v`、`-c`、`-R 700`、`-R 777`、symbolic `u+x`、quoted compound symbolic MODEを検証
+- 既存childについて、Windowsがauto-inheritance control metadataを更新し得る点を考慮し、access rule signatureが維持されることを確認
+- final `chmod.bat`についてCP932 round-trip、CRLF-only、組み込み`--help`を検証
+- 実配布v1.0.2 updaterからfinal v1.0.3候補へのE2Eを行い、更新後bytes完全一致、destination DACL SDDL維持、`--version`=`v1.0.3`を確認
+
+### Documentation
+
+- `.docs/v1.0.3.md`を追加し、制御フロー回帰の原因、directory自身とfuture-child ACLの分離、Raw ACL適用方式、依存関係、実機検証結果を記録
+- README / AGENTSへv1.0.3のdirectory inheritance設計とWindows PowerShell 5.1内部依存を反映
+
 ## [v1.0.2] - 2026-10-16
 
 ### Added
