@@ -18,6 +18,19 @@ chmod --update
 
 自己更新はGNU `chmod`由来の機能ではなく、`chmod-for-windows`独自機能である。
 
+### 初回bootstrap
+
+`--update`自体が`v1.0.2`で初めて追加されたため、**実際のv1.0.1以前の`chmod.bat`から`chmod --update`を実行してv1.0.2へ移行することはできない**。
+
+したがって:
+
+- v1.0.1以前 → v1.0.2: 最初の1回だけ手動更新
+- v1.0.2以降 → 将来version: `chmod --update`を利用可能
+
+とする。
+
+CIで`remote > local`を検証する場合、v1.0.2のupdater codeを保持したままversion markerだけを過去versionへ変更したsynthetic old copyを使用する。これはversion比較・更新経路の検証であり、「実際のv1.0.1にupdaterが存在した」ことを意味しない。
+
 ---
 
 ## 2. Canonical source
@@ -35,6 +48,8 @@ https://raw.githubusercontent.com/Osamix2000/chmod-for-windows/main/chmod.bat
 この設計では`main`が常にdeployable stateであることが重要。
 
 `.update`と`chmod.bat`を別commitで順次更新すると、その間にversion/hash不一致状態を公開するため、release時には同じGit tree/commitで整合させる。
+
+`chmod.bat`はCP932 + CRLFのbytes自体が配布物であり、Gitの改行変換でpayload SHA-256が変化しないよう`.gitattributes`で`chmod.bat -text`を指定する。
 
 ---
 
@@ -106,6 +121,8 @@ certutil -hashfile FILE SHA256
 でpayload/current fileのSHA-256を取得する。
 
 `certutil`の人間向け文言はOS languageで変化し得るため、成功メッセージ文字列そのものは判定材料にしない。v1.0.2は出力を一時fileへ保存し、hash lineを抽出して64桁hexであることも検証する。
+
+quoted executable pathを`for /f ('command')`へ直接埋め込むと追加の`cmd.exe`解析層で引用符問題が起き得るため、現行実装は一度一時fileへ標準出力を保存してから読む。
 
 ### `robocopy.exe`
 
@@ -253,6 +270,35 @@ chmod.bat --update
 
 `--__apply-update`はinternal entry pointであり、必要な環境変数/tokenが揃わない直接呼び出しはusage errorとして拒否する。
 
+### CMD自己書換えに関する不変条件
+
+`cmd.exe`の実行中BAT自己書換えは、Microsoftが「任意の位置・任意の書換えでも安全」と保証しているAPIではない。実用上、`cmd.exe`はBATを逐次読み進めるため、実行中fileのサイズや行位置が変化すると後続処理を誤読する危険がある。
+
+v1.0.2では、子runnerを起動してtarget `chmod.bat`を上書きした**後**に親processが必要とする処理を、次のように同一の括弧blockへまとめる。
+
+```bat
+(
+    "%ComSpec%" /d /c ""%UPDATE_RUNNER%" --__apply-update"
+    if errorlevel 1 (
+        rem error handling
+        exit /b 1
+    )
+    rem success message / cleanup
+    exit /b 0
+)
+```
+
+CMDの括弧blockは実行前にblock全体がparseされる性質があるため、子runner待機中に親script本体が別bytesへ置換されても、上記block内の後処理を継続できるようにしている。
+
+この構造は**実装上の安全不変条件**とする。
+
+- runner起動後のerror handling / success message / cleanup / `exit /b`をblock外へ安易に移動しない
+- 「読みやすくする」目的だけで別labelへの`goto`へ分解しない
+- この部分を変更した場合は、同一サイズのupdateだけでなく、サイズ・label位置が大きく変化するfuture payloadへのstress testを行う
+- この挙動はWindows Server 2025で実測済みだが、Microsoftによる自己書換えBATの正式な互換性保証とは区別する
+
+2026-10-16のCIでは、実際のv1.0.2 updaterから、サイズ・label配置が大幅に異なるsynthetic `v9.9.9` payloadへ更新するstress testを実施し、親`cmd.exe`がupdate後のcleanup/returnまで正常完走し、target bytesがfuture payloadと一致することを確認した。
+
 ---
 
 ## 11. Backup / Rollback
@@ -318,7 +364,9 @@ chmod --upgrade
 
 ## 15. Windows Server 2025 CI検証
 
-2026-10-16、GitHub Actions `windows-latest`（Windows Server 2025 / build 26100）でv1.0.2候補を検証。
+2026-10-16、GitHub Actions `windows-latest`（Windows Server 2025 / build 26100）でv1.0.2候補および公開後Raw GitHub版を検証した。
+
+### 生成・適用・rollback検証
 
 確認項目:
 
@@ -336,6 +384,25 @@ chmod --upgrade
 - rollback後bytes一致
 - rollback後SDDL一致
 
+### 公開Raw GitHub E2E
+
+公開済み`main`のRaw GitHub payloadを直接取得して次を確認した。
+
+- Raw payload SHA-256がmanifest値と一致
+- updater codeを保持したsynthetic v1.0.1 → 公開v1.0.2更新
+- v1.0.2 + canonical bytes → no-op
+- v1.0.2 + local改変bytes → canonical payloadへrepair
+- synthetic v1.0.3 → v1.0.2へのdowngradeを抑止しbytes不変
+- hidden `--upgrade` → `--update`と同じ経路で成功
+
+実際のv1.0.1には`--update`実装がないため、「v1.0.1 → v1.0.2」のversion比較テストはv1.0.2 updater codeのversion markerだけを下げたsynthetic copyで行った。bootstrapの事実とは分ける。
+
+### 構造変更stress test
+
+v1.0.2と大きく異なるサイズ/label配置のsynthetic v9.9.9 payloadへ自己更新し、実行中親BATが置換された後も、事前parseされた括弧blockによって成功処理・cleanup・returnまで完走することを確認した。
+
+このテストは「現在の構造が実Windowsで機能する」ことを確認するもので、Microsoftが将来の全cmd.exeで自己書換えを正式保証しているという意味ではない。
+
 検証済みv1.0.2 payload SHA-256:
 
 ```text
@@ -348,17 +415,24 @@ chmod --upgrade
 
 1. `CHMOD_VERSION`を確認
 2. CP932 + CRLF + tab indentationを確認
-3. `--help`に公開optionだけが載ることを確認
-4. Windows CIを通す
-5. final `chmod.bat`bytesからSHA-256を計算
-6. `.update` version/hashを同じ値へ設定
-7. `chmod.bat`と`.update`を同じGit tree/commitへ入れる
-8. 公開後、旧versionのcopyから実際に`--update`してend-to-end確認
-9. 同versionで再度`--update`してno-op確認
+3. `.gitattributes`で`chmod.bat -text`が維持されていることを確認
+4. `--help`に公開optionだけが載ることを確認
+5. Windows CIを通す
+6. final `chmod.bat`bytesからSHA-256を計算
+7. `.update` version/hashを同じ値へ設定
+8. `chmod.bat`と`.update`を同じGit tree/commitへ入れる
+9. Git indexの`chmod.bat` blobとworking-tree raw bytesがGit filter/改行変換で変化していないことを確認
+10. 公開後、前versionの**updater搭載版**から実際に`--update`してend-to-end確認
+11. 同versionで再度`--update`してno-op確認
+12. 同versionの改変copyからrepair確認
+13. newer synthetic versionでdowngrade抑止確認
+14. updaterの自己書換え構造を変更した場合は、大幅に構造が異なるfuture payloadへのstress testを行う
+
+`v1.0.2`は自己更新初版のため、実際のv1.0.1からのE2Eは存在しない。v1.0.1以前からv1.0.2への移行は手動bootstrapとする。v1.0.2以降のreleaseでは、前versionの実配布updaterから次versionへのE2Eを必須にする。
 
 ---
 
-## 17. 一次資料
+## 17. 一次資料・補助資料
 
 Microsoft:
 
@@ -375,5 +449,7 @@ curl upstream:
 
 - curl manpage  
   https://curl.se/docs/manpage.html
+
+CMDの実行中BAT自己書換えについてはMicrosoftが安全な自己更新APIとして正式保証しているわけではないため、国内外の実測/コミュニティ知見も補助的に参照し、最終判断はWindows実機stress testで行う。
 
 GitHub raw contentはrelease transportとして利用しているが、GitHub自体から独立した署名検証ではない点に注意する。
