@@ -1,0 +1,22 @@
+name: Temporary old branch cleanup
+
+on:
+  push:
+    branches:
+      - github/actions
+    paths:
+      - .github/workflows/tmp-delete-old-branch.yml
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Delete obsolete temporary branch
+        shell: bash
+        run: git push origin --delete tmp-v1.0.2-build
