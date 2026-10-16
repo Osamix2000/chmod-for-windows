@@ -327,6 +327,8 @@ chmod --update
 > [!NOTE]
 > `v1.0.2`の自己更新処理は、書き込み権限がない配置先に対してWindows Sudoで自動昇格しません。更新先へ書き込めない場合は、必要に応じて管理者権限のコマンドプロンプトから`chmod --update`を実行してください。
 
+2026-10-16時点で、Windows Server 2025上のCIにより公開Raw GitHub版を使ったversion更新、同version no-op/repair、downgrade抑止、既存DACL保持、rollback、および構造が大きく異なるfuture payloadへの自己更新を検証しています。
+
 詳細な設計と保守上の注意点は[`.docs/update.md`](.docs/update.md)を参照してください。
 
 <a id="sudo"></a>
