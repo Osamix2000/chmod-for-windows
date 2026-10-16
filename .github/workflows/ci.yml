@@ -1,0 +1,281 @@
+name: chmod CI
+
+on:
+  push:
+    branches:
+      - main
+      - 'github/actions'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: chmod-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package-and-cli:
+    name: Package / CLI
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate CP932, CRLF, version and manifest
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $enc = [Text.Encoding]::GetEncoding(932)
+          $bytes = [IO.File]::ReadAllBytes('chmod.bat')
+          $text = $enc.GetString($bytes)
+
+          $roundTrip = $enc.GetBytes($text)
+          if (-not [Linq.Enumerable]::SequenceEqual([byte[]]$bytes, [byte[]]$roundTrip)) {
+            throw 'chmod.bat is not a clean CP932 round-trip'
+          }
+
+          for ($i = 0; $i -lt $bytes.Length; $i++) {
+            if ($bytes[$i] -eq 10 -and ($i -eq 0 -or $bytes[$i - 1] -ne 13)) {
+              throw 'chmod.bat contains an LF-only newline'
+            }
+          }
+
+          if ($text -notmatch 'set "CHMOD_VERSION=(v[0-9]+\.[0-9]+\.[0-9]+)"') {
+            throw 'CHMOD_VERSION marker is missing or invalid'
+          }
+          $version = $Matches[1]
+
+          if ($text -notmatch '(?m)^:apply_file_acl\r?$') {
+            throw ':apply_file_acl label is missing'
+          }
+
+          $manifest = @{}
+          Get-Content -LiteralPath '.update' | ForEach-Object {
+            if ($_ -match '^([^=]+)=(.*)$') {
+              $manifest[$Matches[1]] = $Matches[2]
+            }
+          }
+
+          if ($manifest.schema -ne '1') {
+            throw "manifest schema mismatch: $($manifest.schema)"
+          }
+          if ($manifest.version -ne $version) {
+            throw "manifest version mismatch: manifest=$($manifest.version) chmod=$version"
+          }
+
+          $hash = (Get-FileHash -LiteralPath 'chmod.bat' -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($manifest.sha256 -ne $hash) {
+            throw "manifest SHA-256 mismatch: manifest=$($manifest.sha256) actual=$hash"
+          }
+
+          Write-Host "version=$version"
+          Write-Host "sha256=$hash"
+
+      - name: Validate CLI basics
+        shell: cmd
+        run: |
+          @echo off
+          call chmod.bat --version >nul
+          if errorlevel 1 exit /b 1
+
+          call chmod.bat --help >nul
+          if errorlevel 1 exit /b 1
+
+          > "%RUNNER_TEMP%\compound.txt" echo test
+          call chmod.bat "u=rw,go=r" "%RUNNER_TEMP%\compound.txt"
+          if errorlevel 1 exit /b 1
+
+          call chmod.bat -R aa >nul 2>&1
+          set "RC=%ERRORLEVEL%"
+          if not "%RC%"=="2" (
+            echo Expected usage error 2 for missing target, got %RC%
+            exit /b 1
+          )
+
+  acl-semantics:
+    name: Windows ACL semantics
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate directory, file and recursive semantics
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          function Get-RuleSignature([string]$Path) {
+            $acl = Get-Acl -LiteralPath $Path
+            return @($acl.Access | ForEach-Object {
+              $sid = $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
+              '{0}|{1}|{2}|{3}|{4}|{5}' -f $sid,$_.AccessControlType,([int]$_.FileSystemRights),$_.InheritanceFlags,$_.PropagationFlags,$_.IsInherited
+            } | Sort-Object)
+          }
+
+          function Assert-SameRules([string]$A, [string]$B, [string]$Message) {
+            $aSig = (Get-RuleSignature $A) -join "`n"
+            $bSig = (Get-RuleSignature $B) -join "`n"
+            if ($aSig -ne $bSig) {
+              throw "$Message`nA=$aSig`nB=$bSig"
+            }
+          }
+
+          $root = Join-Path $env:RUNNER_TEMP 'chmod-ci-acl'
+          Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Path $root | Out-Null
+
+          # Non-recursive directory mode: target itself is restricted, existing child
+          # keeps its access rules, and future children receive the normal parent ACL.
+          $control = Join-Path $root 'control'
+          $target = Join-Path $root 'target'
+          New-Item -ItemType Directory -Path $control,$target | Out-Null
+
+          $controlFile = Join-Path $control 'control.txt'
+          $existing = Join-Path $target 'existing.txt'
+          Set-Content -LiteralPath $controlFile -Value control
+          Set-Content -LiteralPath $existing -Value existing
+
+          $existingBefore = (Get-RuleSignature $existing) -join "`n"
+          $existingProtectedBefore = (Get-Acl -LiteralPath $existing).AreAccessRulesProtected
+
+          & .\chmod.bat 700 $target
+          if ($LASTEXITCODE -ne 0) {
+            throw "chmod 700 failed: $LASTEXITCODE"
+          }
+
+          $existingAfter = (Get-RuleSignature $existing) -join "`n"
+          if ($existingBefore -ne $existingAfter) {
+            throw "existing child access rules changed`nbefore=$existingBefore`nafter=$existingAfter"
+          }
+          if ((Get-Acl -LiteralPath $existing).AreAccessRulesProtected -ne $existingProtectedBefore) {
+            throw 'existing child protection state changed'
+          }
+
+          $targetAcl = Get-Acl -LiteralPath $target
+          if (-not $targetAcl.AreAccessRulesProtected) {
+            throw 'chmod 700 target should have a protected DACL'
+          }
+
+          $targetRules = @($targetAcl.Access)
+          $effectiveSystem = @($targetRules | Where-Object {
+            $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value -eq 'S-1-5-18' -and
+            $_.PropagationFlags -notmatch 'InheritOnly'
+          })
+          $effectiveAdmin = @($targetRules | Where-Object {
+            $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value -eq 'S-1-5-32-544' -and
+            $_.PropagationFlags -notmatch 'InheritOnly'
+          })
+          if ($effectiveSystem.Count -eq 0) {
+            throw 'effective SYSTEM rule is missing from directory mode'
+          }
+          if ($effectiveAdmin.Count -eq 0) {
+            throw 'effective Administrators rule is missing from directory mode'
+          }
+          if (@($targetRules | Where-Object {
+            $_.InheritanceFlags -ne 'None' -and $_.PropagationFlags -match 'InheritOnly'
+          }).Count -eq 0) {
+            throw 'future-child InheritOnly template is missing'
+          }
+
+          $newFile = Join-Path $target 'new.txt'
+          $newDir = Join-Path $target 'newdir'
+          Set-Content -LiteralPath $newFile -Value new
+          New-Item -ItemType Directory -Path $newDir | Out-Null
+          Assert-SameRules $newFile $controlFile 'new child does not match the Windows-standard control ACL'
+
+          # File mode remains private and must not auto-add SYSTEM / Administrators.
+          $private = Join-Path $root 'private.key'
+          Set-Content -LiteralPath $private -Value secret
+          & .\chmod.bat 600 $private
+          if ($LASTEXITCODE -ne 0) {
+            throw "chmod 600 failed: $LASTEXITCODE"
+          }
+          $fileSids = @((Get-Acl -LiteralPath $private).Access | ForEach-Object {
+            $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
+          })
+          if ('S-1-5-18' -in $fileSids) {
+            throw 'file 600 unexpectedly contains SYSTEM'
+          }
+          if ('S-1-5-32-544' -in $fileSids) {
+            throw 'file 600 unexpectedly contains Administrators'
+          }
+
+          # Custom inheritable parent ACE must become a future-child template without
+          # leaking into the chmod target's effective access.
+          $customParent = Join-Path $root 'custom-parent'
+          New-Item -ItemType Directory -Path $customParent | Out-Null
+          & icacls.exe $customParent /grant '*S-1-1-0:(OI)(CI)(R)' /Q | Out-Null
+          if ($LASTEXITCODE -ne 0) {
+            throw 'failed to add custom inheritable Everyone ACE'
+          }
+
+          $customControl = Join-Path $customParent 'control'
+          $customTarget = Join-Path $customParent 'target'
+          New-Item -ItemType Directory -Path $customControl,$customTarget | Out-Null
+          $customControlFile = Join-Path $customControl 'control.txt'
+          Set-Content -LiteralPath $customControlFile -Value control
+
+          & .\chmod.bat 700 $customTarget
+          if ($LASTEXITCODE -ne 0) {
+            throw "chmod 700 custom target failed: $LASTEXITCODE"
+          }
+
+          $customTargetRules = @((Get-Acl -LiteralPath $customTarget).Access)
+          $effectiveEveryone = @($customTargetRules | Where-Object {
+            $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value -eq 'S-1-1-0' -and
+            $_.PropagationFlags -notmatch 'InheritOnly'
+          })
+          if ($effectiveEveryone.Count -ne 0) {
+            throw 'custom parent Everyone ACE leaked into target effective access'
+          }
+
+          $customNewFile = Join-Path $customTarget 'new.txt'
+          Set-Content -LiteralPath $customNewFile -Value new
+          Assert-SameRules $customNewFile $customControlFile 'custom parent ACL was not preserved for future child'
+
+          # Recursive mode applies file-style ACLs to existing files, while future
+          # children still receive the normal Windows inheritance template.
+          $tree = Join-Path $root 'tree'
+          $recursiveControl = Join-Path $root 'recursive-control'
+          $sub = Join-Path $tree 'sub'
+          New-Item -ItemType Directory -Path $tree,$recursiveControl | Out-Null
+          New-Item -ItemType Directory -Path $sub | Out-Null
+
+          $recursiveControlFile = Join-Path $recursiveControl 'control.txt'
+          $treeFile = Join-Path $tree 'a.txt'
+          $subFile = Join-Path $sub 'b.txt'
+          Set-Content -LiteralPath $recursiveControlFile -Value control
+          Set-Content -LiteralPath $treeFile -Value a
+          Set-Content -LiteralPath $subFile -Value b
+
+          & .\chmod.bat -R 700 $tree
+          if ($LASTEXITCODE -ne 0) {
+            throw "chmod -R 700 failed: $LASTEXITCODE"
+          }
+
+          foreach ($file in @($treeFile,$subFile)) {
+            $sids = @((Get-Acl -LiteralPath $file).Access | ForEach-Object {
+              $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
+            })
+            if ('S-1-5-18' -in $sids -or 'S-1-5-32-544' -in $sids) {
+              throw "recursive file did not retain file-style 700 ACL: $file"
+            }
+          }
+
+          $future = Join-Path $sub 'future.txt'
+          Set-Content -LiteralPath $future -Value future
+          Assert-SameRules $future $recursiveControlFile 'future child after -R 700 does not use the Windows-standard ACL'
+
+          & .\chmod.bat -R 777 $tree
+          if ($LASTEXITCODE -ne 0) {
+            throw "chmod -R 777 failed: $LASTEXITCODE"
+          }
+          foreach ($item in @($tree,$sub,$treeFile,$subFile,$future)) {
+            if ((Get-Acl -LiteralPath $item).AreAccessRulesProtected) {
+              throw "-R 777 did not restore inheritance: $item"
+            }
+          }
