@@ -34,6 +34,7 @@ chmod -R a+rX "C:/tools"
 - [📤 終了コード](#exit-codes)
 - [⚠️ 制限事項・注意点](#limitations)
 - [🧪 使用例](#examples)
+- [✅ 開発・CI](#ci)
 - [📝 変更履歴](#changelog)
 
 <a id="overview"></a>
@@ -548,6 +549,13 @@ chmod -c 644 "C:/work/config.txt"
 ```bat
 chmod -R --preserve-root 755 "C:/tools"
 ```
+
+<a id="ci"></a>
+## ✅ 開発・CI
+
+GitHub ActionsでCP932/CRLF、manifest整合、CLI基本動作、Windows ACLの主要semanticsを継続検証しています。
+
+Actions関連の追加・変更は原則`github/actions` branchで実検証し、CI成功後にmainへ取り込みます。詳細な開発運用は[`.docs/ci.md`](.docs/ci.md)を参照してください。
 
 <a id="changelog"></a>
 ## 📝 変更履歴

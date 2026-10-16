@@ -26,6 +26,7 @@ Windows Security Descriptor / ACLを利用し、**Windowsで安全かつ予測�
 - `.docs/chmod.md`
 - `.docs/update.md`
 - `.docs/v1.0.3.md`
+- `.docs/ci.md`
 
 ACL/permission関連の挙動を変更する場合、READMEだけを根拠にせず`.docs`の背景仕様まで確認してください。
 
@@ -494,3 +495,36 @@ versionを自動的に上げず、変更内容に応じて判断してくださ�
 このプロジェクトで重要なのは「Linuxの数字をWindowsへ無理に押し込むこと」ではありません。
 
 GNU/POSIXが何を意味しているのか、Windows Security Modelが何を意味しているのかをそれぞれ理解した上で、**Windows利用者が予測でき、復旧でき、危険な副作用を起こしにくい近似**を選んでください。
+
+## GitHub Actions / branch運用
+
+GitHub Actions関連の追加・変更・検証は、原則として常設branch **`github/actions`** 上で行ってください。
+
+標準フロー:
+
+```text
+main
+  ↓ 最新状態を同期
+github/actions
+  ↓ workflow / testを追加・変更
+GitHub Actionsで実検証
+  ↓ 全job成功
+mainへ取り込み
+  ↓
+main上でもCI成功を確認
+```
+
+ルール:
+
+- `github/actions`はversion固定ではない常設のActions開発・検証branchとして継続利用する
+- Actions関連の作業開始時は、必要に応じてmainの最新状態を`github/actions`へ同期する
+- 未検証のworkflowをmainへ直接追加しない
+- 常設CIは`.github/workflows/ci.yml`とし、原則`contents: read`でrepositoryを書き換えない
+- `Package / CLI`と`Windows ACL semantics`の両jobが成功してからmainへ取り込む
+- mainへ取り込んだ後もmain pushのCI成功を確認する
+- 特定version専用builder、診断、release payload生成、docs書換え等の一時workflowは常設CIへ混ぜない
+- 一時workflowが必要な場合は`github/actions`上で`tmp-<purpose>.yml`等として作成し、目的完了後に削除する
+- `tmp-v1.0.2-build`のようなversion固定の一時branchを今後の標準開発branchとして再利用しない
+- `chmod --update`のrelease E2Eはmainをcanonical sourceとする通常CIと分離し、前versionの実配布updaterと固定candidateを使うrelease専用検証として扱う
+
+詳細は[`.docs/ci.md`](.docs/ci.md)を参照してください。
