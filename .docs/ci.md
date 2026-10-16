@@ -129,13 +129,13 @@ release作業専用・一度限りの診断を常設workflowへ混ぜないで�
 
 一時workflowをmainへ残さないでください。
 
-## `tmp-v1.0.2-build`について
+## 過去の`tmp-v1.0.2-build` branch
 
-`tmp-v1.0.2-build`はv1.0.2 / v1.0.3開発時の一時検証branchで、version名が固定されているため今後の標準Actions開発branchには使用しません。
+`tmp-v1.0.2-build`はv1.0.2 / v1.0.3開発時の一時検証branchでしたが、version名が固定されており今後の標準Actions開発branchには適さないため、2026-10-16に削除しました。
 
-今後は`github/actions`を使用します。
+今後のActions開発・検証には`github/actions`を使用してください。
 
-古い一時branch / workflowを参照する場合は、過去の検証資料としてのみ扱ってください。
+過去のworkflow runやcommitを参照する場合は、当時の検証履歴としてのみ扱ってください。
 
 ## mainへ取り込む条件
 
