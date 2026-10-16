@@ -455,7 +455,7 @@ endlocal
 if "%FORCE_QUIET%"=="0" (
 	echo chmod: エラー
 	echo シンボリックMODEの形式が正しくありません: %MODE%
-	echo 例: +x、u+x、go-rwx、u=rw,go=r、a+rX
+	echo 例: +x、u+x、go-rwx、"u=rw,go=r"、a+rX
 )
 exit /b 1
 
@@ -1288,7 +1288,7 @@ echo   0000～0777        先頭0付き4桁表記にも対応
 echo   +x                who省略時はaとして扱い、実行権限を追加
 echo   u+x               owner相当へ実行権限を追加
 echo   go-rwx            group/other相当からrwxを削除
-echo   u=rw,go=r         複数のシンボリックMODEをカンマ区切りで指定
+echo   "u=rw,go=r"       複数のシンボリックMODEをカンマ区切りで指定
 echo   a+rX              ディレクトリまたは既にxがある対象へxを追加
 echo.
 echo OPTION:
@@ -1315,7 +1315,7 @@ echo   chmod 600 "~/.ssh/id_ed25519"
 echo   chmod 600 "~\.ssh\id_ed25519"
 echo   chmod 600 "%%userprofile%%/.ssh/id_ed25519"
 echo   chmod +x "example.sh"
-echo   chmod u=rw,go= "C:/keys/private_key"
+echo   chmod "u=rw,go=" "C:/keys/private_key"
 echo   chmod -R a+rX "C:/tools"
 echo   chmod -c 644 "C:/work/config.txt"
 echo   chmod -R --preserve-root 755 "C:/tools/bin"
@@ -1326,6 +1326,7 @@ echo   g = BUILTIN\Usersを基準に近似
 echo       ACL読み取り時はAuthenticated Usersも考慮
 echo   o = Everyone
 echo   whoを省略したシンボリックMODEはWindowsにPOSIX umaskがないためaとして扱います。
+echo   =または,を含む複合MODEは "u=rw,go=r" のようにMODE全体を引用してください。
 echo.
 echo 注意:
 echo   setuid、setgid、sticky bitにはWindows ACL上の直接対応がないため未対応です。
