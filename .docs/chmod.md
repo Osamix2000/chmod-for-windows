@@ -719,7 +719,7 @@ GNU出力完全一致より、意味論とWindows上の安全性を優先する�
 
 ## 28. バージョンに関する注意
 
-2026-10時点でGNU公式Webマニュアル検索結果にはCoreutils 9.11表記のページが多く残っている一方、本リポジトリREADMEはGNU coreutils 9.12を参照対象としている。
+2026-10時点のGNU公式stable releaseはCoreutils 9.11（2026-04-20公開）で、現行GNU公式マニュアルも9.11を文書化している。本リポジトリもv1.0.2以降はGNU coreutils 9.11を参照基準として明記する。
 
 GNU coreutilsはsymlink option等が近年変化しているため、version-dependentな機能を実装する場合は:
 

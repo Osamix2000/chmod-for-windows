@@ -1,0 +1,6 @@
+# chmod.bat is CP932 + CRLF and must be stored byte-for-byte.
+chmod.bat -text
+
+# Repository documentation and update manifest are UTF-8/LF text.
+*.md text eol=lf
+.update text eol=lf

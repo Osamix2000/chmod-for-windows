@@ -8,16 +8,40 @@
 
 ### Added
 
+- なし
+
+## [v1.0.2] - 2026-10-16
+
+### Added
+
+- `chmod --update`を追加し、GitHub `main`の公開版へ自己更新できるよう対応
+- `--upgrade`を`--update`と同じ処理を行うhidden aliasとして追加（`--help`には非掲載）
+- `.update` manifestを追加し、公開versionと`chmod.bat`のSHA-256を配布情報として管理
 - `.docs/icacls.md`を追加し、Windows Security Descriptor、DACL/SACL/ACE、継承、Owner、MIC、UAC、特権、File System差、`icacls`全般の仕様・注意点を整理
 - `.docs/chmod.md`を追加し、POSIX/GNU `chmod`のnumeric/symbolic MODE、umask、`X`、special bits、recursive、symlink、GNU拡張等を整理
+- `.docs/update.md`を追加し、自己更新の取得元、integrity check、ACL保持、rollback、trust modelを整理
 - `.docs/README.md`を追加し、仕様調査ドキュメントの索引と情報源優先順位を整理
 - ルート`AGENTS.md`を追加し、GNU/POSIXとWindows ACLの仕様を混同しない為の開発・検証・安全ルールを定義
+
+### Changed
+
+- 参照するGNU coreutilsのversion表記を、2026-10時点の公式stable releaseである`9.11`へ訂正
+- 自己更新では現在versionより古い公開版へのdowngradeを行わず、同一version/同一SHA-256ならno-opとするよう設計
+- 同一versionでも現在の`chmod.bat`が公開SHA-256と異なる場合は、canonical payloadから修復できるよう設計
+
+### Security
+
+- 更新情報とpayloadをHTTPSで取得し、`curl.exe --fail`とprotocol制限を使用
+- ダウンロードした`chmod.bat`を`certutil.exe`でSHA-256検証してから適用
+- 更新前に現在file dataを一時バックアップし、適用後のbyte比較に失敗した場合はrollback
+- `robocopy /COPY:D`によるdata-only overwriteを使用し、既存`chmod.bat`のWindows DACLを維持
 
 ### Documentation
 
 - Microsoft LearnとWindows実機`icacls /?`で継承オプション表記に差がある点を記録し、実機検証待ち事項として整理
 - `icacls /save`をSecurity Descriptor完全バックアップではなくDACLバックアップとして扱う方針を明確化
 - GNU `chmod`互換部分、Windows近似部分、本プロジェクト独自仕様を区別する設計方針を文書化
+- Windows Server 2025 / build 26100でv1.0.2自己更新の生成、SHA-256、CP932/CRLF、ACL保持、rollbackを検証
 
 ## [v1.0.1] - 2026-10-14
 

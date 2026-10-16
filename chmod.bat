@@ -1,7 +1,10 @@
 @echo off
 setlocal EnableExtensions DisableDelayedExpansion
 
-set "CHMOD_VERSION=v1.0.1"
+set "CHMOD_VERSION=v1.0.2"
+if /i "%~1"=="--__apply-update" goto :self_update_apply
+if /i "%~1"=="--update" goto :self_update
+if /i "%~1"=="--upgrade" goto :self_update
 set "RECURSIVE=0"
 set "VERBOSE=0"
 set "CHANGES_ONLY=0"
@@ -1014,6 +1017,253 @@ if %SUDO_MODE_DEC% GTR 3 exit /b 1
 exit /b 0
 
 
+:self_update
+if not "%~2"=="" (
+	echo chmod: エラー
+	echo --update は単独で指定してください。
+	exit /b 2
+)
+
+set "UPDATE_MANIFEST_URL=https://raw.githubusercontent.com/Osamix2000/chmod-for-windows/main/.update"
+set "UPDATE_PAYLOAD_URL=https://raw.githubusercontent.com/Osamix2000/chmod-for-windows/main/chmod.bat"
+set "UPDATE_REMOTE_SCHEMA="
+set "UPDATE_REMOTE_VERSION="
+set "UPDATE_REMOTE_SHA256="
+set "UPDATE_HASH_RESULT="
+
+call :self_update_find_tool curl.exe
+if errorlevel 1 (
+	echo chmod: 更新エラー
+	echo Windows標準の curl.exe が見つかりません。
+	exit /b 1
+)
+set "UPDATE_CURL=%UPDATE_TOOL_RESULT%"
+call :self_update_find_tool certutil.exe
+if errorlevel 1 (
+	echo chmod: 更新エラー
+	echo Windows標準の certutil.exe が見つかりません。
+	exit /b 1
+)
+set "UPDATE_CERTUTIL=%UPDATE_TOOL_RESULT%"
+call :self_update_find_tool robocopy.exe
+if errorlevel 1 (
+	echo chmod: 更新エラー
+	echo Windows標準の robocopy.exe が見つかりません。
+	exit /b 1
+)
+set "UPDATE_ROBOCOPY=%UPDATE_TOOL_RESULT%"
+call :self_update_find_tool fc.exe
+if errorlevel 1 (
+	echo chmod: 更新エラー
+	echo Windows標準の fc.exe が見つかりません。
+	exit /b 1
+)
+set "UPDATE_FC=%UPDATE_TOOL_RESULT%"
+
+set "UPDATE_TEMP=%TEMP%\chmod-update-%RANDOM%-%RANDOM%"
+set "UPDATE_MANIFEST=%UPDATE_TEMP%\manifest.txt"
+set "UPDATE_PAYLOAD_DIR=%UPDATE_TEMP%\payload"
+set "UPDATE_BACKUP_DIR=%UPDATE_TEMP%\backup"
+set "UPDATE_RUNNER=%UPDATE_TEMP%\apply.bat"
+md "%UPDATE_PAYLOAD_DIR%" >nul 2>&1
+if errorlevel 1 (
+	echo chmod: 更新エラー
+	echo 一時ディレクトリを作成できませんでした。
+	exit /b 1
+)
+md "%UPDATE_BACKUP_DIR%" >nul 2>&1
+if errorlevel 1 (
+	rd /s /q "%UPDATE_TEMP%" >nul 2>&1
+	echo chmod: 更新エラー
+	echo 一時ディレクトリを作成できませんでした。
+	exit /b 1
+)
+
+"%UPDATE_CURL%" --fail --location --silent --show-error --connect-timeout 15 --max-time 60 --retry 2 --proto "=https" --proto-redir "=https" --output "%UPDATE_MANIFEST%" "%UPDATE_MANIFEST_URL%"
+if errorlevel 1 (
+	rd /s /q "%UPDATE_TEMP%" >nul 2>&1
+	echo chmod: 更新エラー
+	echo 更新情報の取得に失敗しました。
+	exit /b 1
+)
+
+for /f "usebackq tokens=1,* delims==" %%A in ("%UPDATE_MANIFEST%") do (
+	if /i "%%A"=="schema" set "UPDATE_REMOTE_SCHEMA=%%B"
+	if /i "%%A"=="version" set "UPDATE_REMOTE_VERSION=%%B"
+	if /i "%%A"=="sha256" set "UPDATE_REMOTE_SHA256=%%B"
+)
+
+if not "%UPDATE_REMOTE_SCHEMA%"=="1" goto :self_update_bad_manifest
+echo(%UPDATE_REMOTE_VERSION%| "%SystemRoot%\System32\findstr.exe" /r /x "v[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*" >nul
+if errorlevel 1 goto :self_update_bad_manifest
+if "%UPDATE_REMOTE_SHA256:~63,1%"=="" goto :self_update_bad_manifest
+if not "%UPDATE_REMOTE_SHA256:~64,1%"=="" goto :self_update_bad_manifest
+
+call :self_update_compare_versions "%CHMOD_VERSION%" "%UPDATE_REMOTE_VERSION%"
+if "%UPDATE_VERSION_COMPARE%"=="1" (
+	echo chmod: 現在の %CHMOD_VERSION% は公開版 %UPDATE_REMOTE_VERSION% より新しいため更新しません。
+	rd /s /q "%UPDATE_TEMP%" >nul 2>&1
+	exit /b 0
+)
+
+call :self_update_hash "%~f0"
+if errorlevel 1 (
+	rd /s /q "%UPDATE_TEMP%" >nul 2>&1
+	echo chmod: 更新エラー
+	echo 現在のchmodのSHA-256を計算できませんでした。
+	exit /b 1
+)
+set "UPDATE_LOCAL_SHA256=%UPDATE_HASH_RESULT%"
+
+if "%UPDATE_VERSION_COMPARE%"=="0" if /i "%UPDATE_LOCAL_SHA256%"=="%UPDATE_REMOTE_SHA256%" (
+	echo chmod: %CHMOD_VERSION% は最新版です。
+	rd /s /q "%UPDATE_TEMP%" >nul 2>&1
+	exit /b 0
+)
+
+for %%# in ("%~f0") do set "UPDATE_TARGET_DIR=%%~dp#"
+for %%# in ("%~f0") do set "UPDATE_TARGET_NAME=%%~nx#"
+set "UPDATE_PAYLOAD=%UPDATE_PAYLOAD_DIR%\%UPDATE_TARGET_NAME%"
+
+"%UPDATE_CURL%" --fail --location --silent --show-error --connect-timeout 15 --max-time 60 --retry 2 --proto "=https" --proto-redir "=https" --output "%UPDATE_PAYLOAD%" "%UPDATE_PAYLOAD_URL%"
+if errorlevel 1 (
+	rd /s /q "%UPDATE_TEMP%" >nul 2>&1
+	echo chmod: 更新エラー
+	echo 最新版chmod.batの取得に失敗しました。
+	exit /b 1
+)
+
+call :self_update_hash "%UPDATE_PAYLOAD%"
+if errorlevel 1 (
+	rd /s /q "%UPDATE_TEMP%" >nul 2>&1
+	echo chmod: 更新エラー
+	echo ダウンロードしたchmod.batのSHA-256を計算できませんでした。
+	exit /b 1
+)
+if /i not "%UPDATE_HASH_RESULT%"=="%UPDATE_REMOTE_SHA256%" (
+	rd /s /q "%UPDATE_TEMP%" >nul 2>&1
+	echo chmod: 更新エラー
+	echo ダウンロードしたchmod.batのSHA-256が更新情報と一致しません。
+	exit /b 1
+)
+
+"%UPDATE_ROBOCOPY%" "%UPDATE_TARGET_DIR%." "%UPDATE_BACKUP_DIR%" "%UPDATE_TARGET_NAME%" /COPY:D /R:0 /W:0 /IS /IT /NFL /NDL /NJH /NJS /NP >nul
+set "UPDATE_COPY_RC=%ERRORLEVEL%"
+if %UPDATE_COPY_RC% GEQ 8 (
+	rd /s /q "%UPDATE_TEMP%" >nul 2>&1
+	echo chmod: 更新エラー
+	echo 現在のchmod.batをバックアップできませんでした。
+	exit /b 1
+)
+
+copy /b /y "%~f0" "%UPDATE_RUNNER%" >nul
+if errorlevel 1 (
+	rd /s /q "%UPDATE_TEMP%" >nul 2>&1
+	echo chmod: 更新エラー
+	echo 更新用一時ランナーを作成できませんでした。
+	exit /b 1
+)
+
+set "CHMOD_UPDATE_APPLY_TOKEN=1"
+set "CHMOD_UPDATE_TARGET_DIR=%UPDATE_TARGET_DIR%"
+set "CHMOD_UPDATE_TARGET_NAME=%UPDATE_TARGET_NAME%"
+set "CHMOD_UPDATE_CANDIDATE=%UPDATE_PAYLOAD%"
+set "CHMOD_UPDATE_BACKUP_DIR=%UPDATE_BACKUP_DIR%"
+set "CHMOD_UPDATE_EXPECTED_SHA256=%UPDATE_REMOTE_SHA256%"
+set "CHMOD_UPDATE_CERTUTIL=%UPDATE_CERTUTIL%"
+set "CHMOD_UPDATE_ROBOCOPY=%UPDATE_ROBOCOPY%"
+set "CHMOD_UPDATE_FC=%UPDATE_FC%"
+(
+	"%ComSpec%" /d /c ""%UPDATE_RUNNER%" --__apply-update"
+	if errorlevel 1 (
+		echo chmod: 更新エラー
+		echo chmod.batの置換に失敗しました。可能な範囲で元のファイルへ復元しました。
+		rd /s /q "%UPDATE_TEMP%" >nul 2>&1
+		exit /b 1
+	)
+	echo chmod: %CHMOD_VERSION% から %UPDATE_REMOTE_VERSION% へ更新しました。
+	rd /s /q "%UPDATE_TEMP%" >nul 2>&1
+	exit /b 0
+)
+
+:self_update_bad_manifest
+rd /s /q "%UPDATE_TEMP%" >nul 2>&1
+echo chmod: 更新エラー
+echo 更新情報の形式が不正です。
+exit /b 1
+
+:self_update_apply
+if not "%~2"=="" exit /b 2
+if not "%CHMOD_UPDATE_APPLY_TOKEN%"=="1" exit /b 2
+if not defined CHMOD_UPDATE_TARGET_DIR exit /b 2
+if not defined CHMOD_UPDATE_TARGET_NAME exit /b 2
+if not defined CHMOD_UPDATE_CANDIDATE exit /b 2
+if not defined CHMOD_UPDATE_BACKUP_DIR exit /b 2
+if not defined CHMOD_UPDATE_EXPECTED_SHA256 exit /b 2
+if not defined CHMOD_UPDATE_CERTUTIL exit /b 2
+if not defined CHMOD_UPDATE_ROBOCOPY exit /b 2
+if not defined CHMOD_UPDATE_FC exit /b 2
+
+set "UPDATE_CERTUTIL=%CHMOD_UPDATE_CERTUTIL%"
+call :self_update_hash "%CHMOD_UPDATE_CANDIDATE%"
+if errorlevel 1 exit /b 1
+if /i not "%UPDATE_HASH_RESULT%"=="%CHMOD_UPDATE_EXPECTED_SHA256%" exit /b 1
+
+for %%# in ("%CHMOD_UPDATE_CANDIDATE%") do set "UPDATE_APPLY_SOURCE_DIR=%%~dp#"
+"%CHMOD_UPDATE_ROBOCOPY%" "%UPDATE_APPLY_SOURCE_DIR%." "%CHMOD_UPDATE_TARGET_DIR%." "%CHMOD_UPDATE_TARGET_NAME%" /COPY:D /R:0 /W:0 /IS /IT /NFL /NDL /NJH /NJS /NP >nul
+set "UPDATE_APPLY_RC=%ERRORLEVEL%"
+if %UPDATE_APPLY_RC% GEQ 8 goto :self_update_rollback
+
+"%CHMOD_UPDATE_FC%" /b "%CHMOD_UPDATE_CANDIDATE%" "%CHMOD_UPDATE_TARGET_DIR%%CHMOD_UPDATE_TARGET_NAME%" >nul 2>&1
+if errorlevel 1 goto :self_update_rollback
+exit /b 0
+
+:self_update_rollback
+"%CHMOD_UPDATE_ROBOCOPY%" "%CHMOD_UPDATE_BACKUP_DIR%\." "%CHMOD_UPDATE_TARGET_DIR%." "%CHMOD_UPDATE_TARGET_NAME%" /COPY:D /R:0 /W:0 /IS /IT /NFL /NDL /NJH /NJS /NP >nul
+set "UPDATE_ROLLBACK_RC=%ERRORLEVEL%"
+if %UPDATE_ROLLBACK_RC% GEQ 8 exit /b 1
+"%CHMOD_UPDATE_FC%" /b "%CHMOD_UPDATE_BACKUP_DIR%\%CHMOD_UPDATE_TARGET_NAME%" "%CHMOD_UPDATE_TARGET_DIR%%CHMOD_UPDATE_TARGET_NAME%" >nul 2>&1
+if errorlevel 1 exit /b 1
+exit /b 1
+
+:self_update_find_tool
+set "UPDATE_TOOL_RESULT="
+if exist "%SystemRoot%\Sysnative\%~1" set "UPDATE_TOOL_RESULT=%SystemRoot%\Sysnative\%~1"
+if not defined UPDATE_TOOL_RESULT if exist "%SystemRoot%\System32\%~1" set "UPDATE_TOOL_RESULT=%SystemRoot%\System32\%~1"
+if not defined UPDATE_TOOL_RESULT exit /b 1
+exit /b 0
+
+:self_update_hash
+set "UPDATE_HASH_RESULT="
+set "UPDATE_HASH_FILE=%TEMP%\chmod-hash-%RANDOM%-%RANDOM%.txt"
+"%UPDATE_CERTUTIL%" -hashfile "%~1" SHA256 > "%UPDATE_HASH_FILE%" 2>nul
+if errorlevel 1 (
+	del /q "%UPDATE_HASH_FILE%" >nul 2>&1
+	exit /b 1
+)
+for /f "usebackq skip=1 tokens=* delims=" %%H in ("%UPDATE_HASH_FILE%") do if not defined UPDATE_HASH_RESULT set "UPDATE_HASH_RESULT=%%H"
+del /q "%UPDATE_HASH_FILE%" >nul 2>&1
+set "UPDATE_HASH_RESULT=%UPDATE_HASH_RESULT: =%"
+if not defined UPDATE_HASH_RESULT exit /b 1
+if "%UPDATE_HASH_RESULT:~63,1%"=="" exit /b 1
+if not "%UPDATE_HASH_RESULT:~64,1%"=="" exit /b 1
+for /f "delims=0123456789abcdefABCDEF" %%Z in ("%UPDATE_HASH_RESULT%") do exit /b 1
+exit /b 0
+
+:self_update_compare_versions
+set "UPDATE_VERSION_COMPARE=0"
+set "UPDATE_VC_A=%~1"
+set "UPDATE_VC_B=%~2"
+for /f "tokens=1-3 delims=." %%A in ("%UPDATE_VC_A:~1%") do set "UPDATE_VC_A1=%%A"& set "UPDATE_VC_A2=%%B"& set "UPDATE_VC_A3=%%C"
+for /f "tokens=1-3 delims=." %%A in ("%UPDATE_VC_B:~1%") do set "UPDATE_VC_B1=%%A"& set "UPDATE_VC_B2=%%B"& set "UPDATE_VC_B3=%%C"
+if %UPDATE_VC_A1% LSS %UPDATE_VC_B1% set "UPDATE_VERSION_COMPARE=-1"& exit /b 0
+if %UPDATE_VC_A1% GTR %UPDATE_VC_B1% set "UPDATE_VERSION_COMPARE=1"& exit /b 0
+if %UPDATE_VC_A2% LSS %UPDATE_VC_B2% set "UPDATE_VERSION_COMPARE=-1"& exit /b 0
+if %UPDATE_VC_A2% GTR %UPDATE_VC_B2% set "UPDATE_VERSION_COMPARE=1"& exit /b 0
+if %UPDATE_VC_A3% LSS %UPDATE_VC_B3% set "UPDATE_VERSION_COMPARE=-1"& exit /b 0
+if %UPDATE_VC_A3% GTR %UPDATE_VC_B3% set "UPDATE_VERSION_COMPARE=1"& exit /b 0
+exit /b 0
+
 :show_version
 echo chmod %CHMOD_VERSION%
 echo 作成: ChatGPT 5.6 Sol High
@@ -1053,6 +1303,7 @@ echo       --preserve-root
 echo                     -R指定時、ドライブ/UNC共有のルートを拒否
 echo       --no-preserve-root
 echo                     ルート保護を無効化 ^(既定^)
+echo       --update       GitHubから最新版へ更新
 echo       --version     バージョンを表示
 echo       --help        このヘルプを表示
 echo.

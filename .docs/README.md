@@ -10,6 +10,9 @@
 - [`chmod.md`](chmod.md)  
   POSIX / GNU coreutils `chmod`のfile mode、numeric/symbolic MODE、umask、`X`、special bits、recursive、symlink、GNU拡張等とWindows版への対応。
 
+- [`update.md`](update.md)  
+  `--update`自己更新の取得元、manifest、version判定、SHA-256検証、ACL保持、rollback、trust model、リリース時の不変条件。
+
 ## 読み方
 
 実装変更時は片方だけではなく両方を参照してください。

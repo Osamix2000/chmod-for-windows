@@ -1,6 +1,6 @@
 # icacls / Windows ACL 仕様調査
 
-> 調査基準日: 2026-10-14  
+> 調査基準日: 2026-10-16  
 > 対象: Windows 10 / 11、Windows Server 2016 / 2019 / 2022 / 2025を中心とする現行Windows  
 > 目的: `chmod-for-windows`でGNU `chmod`に可能な限り近い操作感を実現するため、`icacls.exe`とWindowsアクセス制御の仕様・限界を整理する
 
@@ -487,6 +487,25 @@ Windows 11等の`icacls /?`内蔵ヘルプはさらに明確に、**SACL、Owner
 - `/reset`: 現在の親継承を基準に既定のInherited ACLへ置換
 
 用途は全く異なる。
+
+### 13.4 `v1.0.2`自己更新と既存DACLの保持
+
+`chmod-for-windows v1.0.2`の自己更新では、更新対象`chmod.bat`の既存Windows DACLを維持するため、`robocopy /COPY:D`を使用して**Dataのみ**を差し替える。
+
+Microsoftの`robocopy`仕様では`/COPY:<copyflags>`の各要素は明確に分離されている。
+
+- `D`: Data
+- `A`: Attributes
+- `T`: Timestamps
+- `S`: NTFS ACL
+- `O`: Owner
+- `U`: Auditing
+
+そのため`/COPY:D`は新しい配布ファイル側のACL/Owner/Auditingをコピーしない設計になる。
+
+Windows Server 2025 / build 26100上のv1.0.2 CIでは、明示的に継承を切ったテスト対象について更新前後のSDDLが一致することを確認している。また意図的に更新後検証を失敗させたrollback testでも、元bytesとSDDLの復旧を確認している。
+
+ただしこれは「Security Descriptorをバックアップして再設定する」方式ではなく、**既存destination fileへのdata-only overwriteでSecurity Descriptorを触らない**方式である。ファイルを削除して新規作成する実装へ変更するとACL継承が変化し得るため、自己更新処理を変更する場合はDACL保持テストを必須とする。
 
 ---
 

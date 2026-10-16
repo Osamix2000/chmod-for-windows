@@ -27,6 +27,7 @@ chmod -R a+rX "C:/tools"
 - [🧩 シンボリックMODE](#symbolic-mode)
 - [📂 パス指定](#paths)
 - [⚙️ オプション](#options)
+- [⬆️ 自己更新](#update)
 - [🛡️ Windows Sudoによる自動再実行](#sudo)
 - [🔄 Windows ACLとの対応](#acl-mapping)
 - [🔍 権限の確認方法](#check-permissions)
@@ -54,7 +55,7 @@ chmod -R a+rX directory
 
 実装は`chmod.bat`単体で、PowerShellを必要としません。
 
-GNU coreutils 9.12の`chmod`の書式や挙動を参考にしていますが、GNU `chmod`そのものの移植や完全互換実装ではありません。
+GNU coreutils 9.11の`chmod`の書式や挙動を参考にしていますが、GNU `chmod`そのものの移植や完全互換実装ではありません。
 
 <a id="features"></a>
 ## 🚀 主な機能
@@ -69,6 +70,7 @@ GNU coreutils 9.12の`chmod`の書式や挙動を参考にしていますが、G
 - `-v, --verbose`
 - `-f, --quiet`
 - `--preserve-root`
+- `--update`によるGitHubからの自己更新
 - `/`と`\`の両方を使用できるパス指定
 - `~`を現在ユーザーのホームディレクトリとして展開
 - ACL変更前のバックアップ
@@ -278,6 +280,7 @@ chmod 600 "~/My Keys/private.key"
 | `--silent` | `--quiet`と同じ |
 | `--preserve-root` | `-R`指定時、ドライブまたはUNC共有のルートを拒否 |
 | `--no-preserve-root` | ルート保護を無効化。現在の既定値 |
+| `--update` | GitHubの公開版を確認し、必要なら最新版へ自己更新 |
 | `--version` | バージョンを表示 |
 | `--help` | ヘルプを表示 |
 
@@ -289,6 +292,38 @@ chmod -c 644 "C:/work/config.txt"
 chmod -v +x example.sh
 chmod -R --preserve-root 755 "C:/tools"
 ```
+
+<a id="update"></a>
+## ⬆️ 自己更新
+
+`v1.0.2`以降は、現在の`chmod.bat`をGitHub上の公開版へ更新できます。
+
+```bat
+chmod --update
+```
+
+更新処理では、リポジトリ`main`ブランチの`.update`と`chmod.bat`をHTTPSで取得し、公開versionとSHA-256を確認してから現在のファイルを更新します。
+
+主な安全策:
+
+- `curl.exe`でHTTPエラーを失敗扱いにし、HTTPS以外のprotocol/redirectを拒否
+- ダウンロードした`chmod.bat`を`certutil.exe`でSHA-256検証
+- 現在versionより古い公開版へのdowngradeを行わない
+- 同一versionかつ同一SHA-256なら何も変更しない
+- 同一versionでもローカル内容が公開版と異なる場合は、公開版から修復可能
+- 更新前に現在の`chmod.bat`を一時バックアップ
+- `robocopy /COPY:D`でファイル内容だけを差し替え、既存のWindows DACLを維持
+- 差し替え後に`fc.exe /b`でbyte単位に検証し、失敗時はバックアップから復旧
+
+必要なコマンドはWindows標準の`curl.exe`、`certutil.exe`、`robocopy.exe`、`fc.exe`です。PowerShellは必要ありません。
+
+> [!IMPORTANT]
+> SHA-256はダウンロード破損や`.update`との不一致を検出するためのものです。独立した電子署名ではないため、GitHubリポジトリの`main`自体が改ざんされた場合まで検出できるものではありません。
+
+> [!NOTE]
+> `v1.0.2`の自己更新処理は、書き込み権限がない配置先に対してWindows Sudoで自動昇格しません。更新先へ書き込めない場合は、必要に応じて管理者権限のコマンドプロンプトから`chmod --update`を実行してください。
+
+詳細な設計と保守上の注意点は[`.docs/update.md`](.docs/update.md)を参照してください。
 
 <a id="sudo"></a>
 ## 🛡️ Windows Sudoによる自動再実行
@@ -414,6 +449,8 @@ Windows上の実際のアクセス権を確認する場合は`icacls`の結果�
 - ディレクトリではWindowsの管理・復旧経路を保持する為、`SYSTEM`と`Administrators`のFull Controlを維持します。
 - Windows ACLをサポートするNTFS等のファイルシステムを前提としています。
 - Windows版coreutilsなどの`ls -la`表示は、実際のWindows ACL確認には使用できない場合があります。
+- `--update`はGitHubへのHTTPS接続とWindows標準の`curl.exe`、`certutil.exe`、`robocopy.exe`、`fc.exe`を必要とします。
+- `--update`のSHA-256検証は、GitHubリポジトリ自体から独立した署名検証ではありません。
 - システムディレクトリやドライブ全体へ再帰処理を行うとWindowsの動作へ影響する可能性があります。
 - `-R`で重要なパスを操作する場合は`--preserve-root`の使用を推奨します。
 
@@ -466,6 +503,12 @@ chmod 777 "C:/work"
 
 ```bat
 chmod -R 777 "C:/work"
+```
+
+### 最新版へ自己更新する
+
+```bat
+chmod --update
 ```
 
 ### MODEが変化した対象だけ表示する

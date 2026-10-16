@@ -24,6 +24,7 @@ Windows Security Descriptor / ACLを利用し、**Windowsで安全かつ予測�
 - `CHANGELOG.md`
 - `.docs/icacls.md`
 - `.docs/chmod.md`
+- `.docs/update.md`
 
 ACL/permission関連の挙動を変更する場合、READMEだけを根拠にせず`.docs`の背景仕様まで確認してください。
 
@@ -221,6 +222,81 @@ GNUの`-H/-L/-P`をWindows Symlink/Junction/Mount Pointへ単純コピーしな�
 DACL丸ごとコピーとGNU `--reference`のmode copyは別物です。
 
 互換機能として追加する場合は擬似mode semanticsを優先し、ACL情報損失を明記してください。
+
+## 自己更新機能の不変条件
+
+`v1.0.2`以降の`--update`は配布経路そのものなので、通常のoption追加より厳しく扱います。
+
+### 公開interface
+
+- ユーザー向け公開optionは`--update`
+- `--upgrade`は`--update`と完全に同じ処理へdispatchする互換alias
+- `--upgrade`はhidden扱いとし、通常の`--help`とREADMEのoption一覧には掲載しない
+- hidden aliasを削除・別動作化する場合は明示的な仕様変更として扱う
+
+### `.update`と`chmod.bat`は同一release単位
+
+公開`main`では次の整合性を常に維持してください。
+
+```text
+.update version == chmod.bat CHMOD_VERSION
+.update sha256 == chmod.bat bytes のSHA-256
+```
+
+`chmod.bat`のbytesを変更するcommitでは、配布対象の変更である限り`.update`も**同じtree/commitで**更新してください。
+
+manifestだけ先行、payloadだけ先行という状態を`main`へ作らないでください。
+
+### update source
+
+v1.0.2は次をcanonical sourceとします。
+
+- `https://raw.githubusercontent.com/Osamix2000/chmod-for-windows/main/.update`
+- `https://raw.githubusercontent.com/Osamix2000/chmod-for-windows/main/chmod.bat`
+
+そのため`main`は常に自己更新可能なdeployable stateである必要があります。
+
+将来GitHub Releases等へ変更する場合は`.docs/update.md`とtrust modelも更新してください。
+
+### transport / integrity
+
+- `curl.exe`を明示し、PowerShellの`curl` aliasへ依存しない
+- HTTP errorを成功扱いにしない
+- HTTPS以外のprotocolとredirect先を許可しない
+- payload適用前に`.update`のSHA-256と一致することを確認
+- 現在versionより古いversionへ自動downgradeしない
+- SHA-256はrepo自体から独立したsignatureではないため「署名検証」と表現しない
+
+### ACLを壊さない
+
+自己更新で`chmod.bat`を削除して新規作成しないでください。
+
+v1.0.2では`robocopy /COPY:D`によるdata-only overwriteを使い、既存destinationのDACLを保持します。
+
+変更時は最低限:
+
+- custom/継承無効DACLの更新前後SDDL一致
+- 正常更新後bytes一致
+- 検証失敗時rollback後bytes一致
+- rollback後SDDL一致
+
+をWindows実機で確認してください。
+
+### updater最低テスト
+
+- `--help`に`--update`が存在
+- `--help`に`--upgrade`が存在しない
+- `--upgrade`が`--update`と同じhandlerへ入る
+- extra argumentをusage errorとして拒否
+- manifest schema/version/hash不正を拒否
+- network failureを安全に終了
+- downgradeを行わない
+- same version + same hashはno-op
+- same version + hash mismatchはcanonical payloadで修復
+- SHA-256 mismatchでは適用しない
+- destination DACLを維持
+- post-copy byte verification failureでrollback
+- write permission不足で元fileを破損しない
 
 ## 実装ポリシー
 
