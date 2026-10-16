@@ -10,6 +10,13 @@
 
 - なし
 
+### Documentation
+
+- `v1.0.1`以前から`v1.0.2`への初回移行は`--update`未搭載のため手動bootstrapが必要である点を明確化
+- 公開Raw GitHub版を使ったremote>local、same-version no-op/repair、downgrade抑止、hidden `--upgrade`のE2E結果を記録
+- 実行中BAT自己書換えについて、親processの後処理を同一括弧blockへ保持する実装上の不変条件を文書化
+- サイズ・label配置が大幅に異なるsynthetic future payloadへの自己更新stress test成功を記録
+
 ## [v1.0.2] - 2026-10-16
 
 ### Added
