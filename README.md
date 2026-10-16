@@ -7,7 +7,7 @@ WindowsのACLを、Linux/GNU `chmod`に近い書式で操作する為の軽量�
 ```bat
 chmod 600 ~/.ssh/id_ed25519
 chmod +x example.sh
-chmod u=rw,go= "C:/keys/private_key"
+chmod "u=rw,go=" "C:/keys/private_key"
 chmod -R a+rX "C:/tools"
 ```
 
@@ -49,11 +49,11 @@ chmod 755 directory
 chmod +x example.sh
 chmod u+x file
 chmod go-rwx private.key
-chmod u=rw,go=r file
+chmod "u=rw,go=r" file
 chmod -R a+rX directory
 ```
 
-実装は`chmod.bat`単体で、PowerShellを必要としません。
+ユーザー向けinterfaceは`chmod.bat`単体です。v1.0.3では数値`777`以外のディレクトリACLを安全に再構成するため、Windows標準のWindows PowerShell 5.1を内部的に使用します。PowerShell 7 / `pwsh`は不要です。
 
 GNU coreutils 9.11の`chmod`の書式や挙動を参考にしていますが、GNU `chmod`そのものの移植や完全互換実装ではありません。
 
@@ -63,7 +63,7 @@ GNU coreutils 9.11の`chmod`の書式や挙動を参考にしていますが、G
 - 1～3桁の8進数MODE
 - 先頭`0`付き4桁MODE
 - `+x`、`u+x`、`go-rwx`などのシンボリックMODE
-- `u=rw,go=r`のようなカンマ区切りの複数指定
+- `"u=rw,go=r"`のようなカンマ区切りの複数指定
 - GNU `chmod`の`X`に近い条件付き実行権限
 - `-R`による再帰処理
 - `-c, --changes`
@@ -77,8 +77,8 @@ GNU coreutils 9.11の`chmod`の書式や挙動を参考にしていますが、G
 - 途中失敗時のACL自動復元
 - Windows Sudoが利用可能な場合の自動再実行
 - SIDを利用したローカライズ非依存のACL操作
-- `cmd.exe`のみで動作し、PowerShell不要
-- ディレクトリでは`(OI)(CI)`付きACEにより子ファイル・子ディレクトリへ権限を継承
+- ユーザー操作は`cmd.exe`から完結。数値`777`以外のディレクトリACL処理ではWindows標準のWindows PowerShell 5.1を内部利用
+- ディレクトリ自身のMODE ACEとfuture-child用Windows inheritance templateを分離し、親の通常ACLを新規子へ引き継げるよう構成
 - ディレクトリへの数値MODE `777`でWindows標準のACL継承状態へ復旧
 
 <a id="install"></a>
@@ -202,9 +202,17 @@ GNU `chmod`に近いシンボリックMODEを使用できます。
 chmod +x example.sh
 chmod u+x example.sh
 chmod go-rwx private.key
-chmod u=rw,go=r file
+chmod "u=rw,go=r" file
 chmod a+rX directory
 ```
+
+> [!IMPORTANT]
+> `cmd.exe` / batchの引数解析上、`=`または`,`を含む複合シンボリックMODEは、MODE全体を引用してください。
+>
+> ```bat
+> chmod "u=rw,go=r" file
+> chmod "u=rw,go=" private.key
+> ```
 
 対応する`who`:
 
@@ -319,7 +327,7 @@ chmod --update
 - `robocopy /COPY:D`でファイル内容だけを差し替え、既存のWindows DACLを維持
 - 差し替え後に`fc.exe /b`でbyte単位に検証し、失敗時はバックアップから復旧
 
-必要なコマンドはWindows標準の`curl.exe`、`certutil.exe`、`robocopy.exe`、`fc.exe`です。PowerShellは必要ありません。
+自己更新処理自体に必要なコマンドはWindows標準の`curl.exe`、`certutil.exe`、`robocopy.exe`、`fc.exe`で、`--update`自体はPowerShellを必要としません。なお、v1.0.3の数値`777`以外のディレクトリACL処理ではWindows PowerShell 5.1を内部利用します。
 
 > [!IMPORTANT]
 > SHA-256はダウンロード破損や`.update`との不一致を検出するためのものです。独立した電子署名ではないため、GitHubリポジトリの`main`自体が改ざんされた場合まで検出できるものではありません。
@@ -327,7 +335,7 @@ chmod --update
 > [!NOTE]
 > `v1.0.2`の自己更新処理は、書き込み権限がない配置先に対してWindows Sudoで自動昇格しません。更新先へ書き込めない場合は、必要に応じて管理者権限のコマンドプロンプトから`chmod --update`を実行してください。
 
-2026-10-16時点で、Windows Server 2025上のCIにより公開Raw GitHub版を使ったversion更新、同version no-op/repair、downgrade抑止、既存DACL保持、rollback、および構造が大きく異なるfuture payloadへの自己更新を検証しています。
+2026-10-16時点で、Windows Server 2025上のCIにより公開Raw GitHub版を使ったversion更新、同version no-op/repair、downgrade抑止、既存DACL保持、rollback、構造が大きく異なるfuture payloadへの自己更新に加え、実配布v1.0.2 updaterからfinal v1.0.3 payloadへの更新、更新後bytes完全一致、destination DACL維持を検証しています。
 
 詳細な設計と保守上の注意点は[`.docs/update.md`](.docs/update.md)を参照してください。
 
@@ -382,11 +390,21 @@ Windowsではユーザーが`Users`、`Authenticated Users`、`Everyone`など�
 
 ### ディレクトリのACL継承
 
-ファイルとディレクトリではWindows ACLの継承モデルが異なる為、`v1.0.1`以降は処理を分離しています。
+ファイルとディレクトリではWindows ACLの継承モデルが異なる為、`v1.0.1`以降は処理を分離しています。v1.0.3では、この分離時に残っていた制御フロー回帰も修正しています。
 
-ディレクトリへ`700`、`750`、`755`等を指定した場合は、`u/g/o`に対応するACEへ`(OI)(CI)`を付与し、子ファイル・子ディレクトリへ権限を継承できるようにします。
+`700`、`750`、`755`等の数値`777`以外をディレクトリへ適用する場合、v1.0.3では**対象ディレクトリ自身のMODE ACE**と**将来の子要素用Windows inheritance template**を分離します。
 
-また、Windows上で管理・復旧経路を失わないよう、ディレクトリでは`SYSTEM`と`Administrators`のFull Controlを維持します。
+- 対象ディレクトリ自身にはu/g/o MODE相当のACEを有効ACEとして設定
+- `SYSTEM`と`Administrators`のFull Controlを管理・復旧用に維持
+- 対象ディレクトリの親が持つ継承可能ACEを`InheritOnly` templateとして保持
+- 親由来templateは対象自身には効かず、将来作成される子ファイル・子ディレクトリへ通常のWindows ACLとして継承
+- 非`-R`では既存子へ明示的な`chmod` tree walkを行わない
+
+この設計により、`chmod 700 DIR`でDIR自身を制限しながら、将来DIR内に作成する通常ファイルまで`700`相当ACLへ固定することを避けます。GNU/POSIXの「ディレクトリ自身のmode」とWindowsの「子へのACL継承」を同一ACEで兼用しないための設計です。
+
+Windows Server 2025 / build 26100の検証では、非再帰変更後も既存childのaccess rule signatureを維持し、新規childは親由来の通常Windows ACLを受けることを確認しています。独自のinheritable ACEを持つ親についても、対象自身のeffective accessへ漏らさずfuture childへ継承できることを確認しています。
+
+詳細は[`.docs/v1.0.3.md`](.docs/v1.0.3.md)を参照してください。
 
 > [!IMPORTANT]
 > ディレクトリへ数値MODE `777`を指定した場合は、GNU/Linuxの`chmod 777`をそのまま再現するのではなく、**Windows標準のACL継承状態へ戻す復旧操作**として扱います。
@@ -451,6 +469,8 @@ Windows上の実際のアクセス権を確認する場合は`icacls`の結果�
 - `g=u`、`o=g`など、`u/g/o`から別の`u/g/o`へ権限をコピーするMODEは現在未対応です。
 - `u`はファイル所有者ではなく現在のWindowsユーザーとして扱います。
 - `g`と`o`はWindowsグループ/SIDを使用した近似です。
+- `=`または`,`を含む複合シンボリックMODEは、`cmd.exe` / batchの引数境界を保つためMODE全体を引用してください。
+- v1.0.3の数値`777`以外のディレクトリACL処理には、Windows標準のWindows PowerShell 5.1が必要です。PowerShell 7 / `pwsh`は不要です。
 - ディレクトリへの数値MODE `777`はWindows固有の復旧動作として、親からのACL継承を再有効化します。
 - ディレクトリではWindowsの管理・復旧経路を保持する為、`SYSTEM`と`Administrators`のFull Controlを維持します。
 - Windows ACLをサポートするNTFS等のファイルシステムを前提としています。
@@ -490,7 +510,7 @@ chmod go-rwx private.key
 ### owner相当を読み書き、group/other相当を読み取りへ設定する
 
 ```bat
-chmod u=rw,go=r file
+chmod "u=rw,go=r" file
 ```
 
 ### ディレクトリツリーへ読み取りと条件付き実行権限を設定する
