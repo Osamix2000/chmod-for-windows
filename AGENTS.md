@@ -14,7 +14,7 @@ Windows Security Descriptor / ACLを利用し、**Windowsで安全かつ予測�
 2. GNU/POSIXの意味を理解した上で近似する
 3. 「完全互換」と誤認させない
 4. 復旧可能性を確保する
-5. Windows標準コマンドだけで軽量に動作する方針を尊重する
+5. Windows標準機能を中心に、依存を増やしすぎず軽量に動作する方針を尊重する
 
 ## 必読ドキュメント
 
@@ -25,6 +25,7 @@ Windows Security Descriptor / ACLを利用し、**Windowsで安全かつ予測�
 - `.docs/icacls.md`
 - `.docs/chmod.md`
 - `.docs/update.md`
+- `.docs/v1.0.3.md`
 
 ACL/permission関連の挙動を変更する場合、READMEだけを根拠にせず`.docs`の背景仕様まで確認してください。
 
@@ -139,10 +140,28 @@ fileとdirectoryではSpecific Rightsと継承の意味が異なります。
 
 - `(OI)` Object Inherit
 - `(CI)` Container Inherit
+- `(IO)` Inherit Only
+- `(NP)` No Propagate
 - Delete Child
 - Traverse
 
 等を考慮してください。
+
+v1.0.1でfile/directory処理を分離した際、`:apply_file_acl`ラベル欠落とdirectory後のfall-throughという回帰が発生しました。v1.0.3で修正済みです。
+
+handler追加・移動時は、directory処理後にfile handlerへfall-throughしないこと、`:apply_file_acl`ラベルが存在することを必ず確認してください。
+
+### directory自身とfuture-child templateを分離する
+
+v1.0.3では数値`777`以外のdirectoryについて、対象自身へ効くMODE ACEと将来child用inheritance templateを分離します。
+
+- u/g/o MODE ACEをそのまま`(OI)(CI)`付きでfuture childへ流さない
+- parentのinheritable ACEを`InheritOnly` templateとして保持し、target自身のeffective accessへ漏らさない
+- 非`-R`で既存childへ明示的なchmod tree walkを行わない
+- 本プロジェクト管理SID以外のExplicit ACEを必要以上に削除しない
+- `NoPropagateInherit`を単純template化して伝播範囲を変えない
+
+この方針を変更する場合は`.docs/v1.0.3.md`を確認し、既存child、新規child、独自parent inheritable ACEを含む実機テストを行ってください。
 
 ### SYSTEM / Administrators
 
@@ -194,6 +213,19 @@ GNUではwho省略時にumaskの影響があります。
 
 現行Windows版はumask相当がないため概ね`a`扱いです。これは既知の非互換です。
 
+### compound symbolic MODEの引用
+
+`cmd.exe` / batchでは`=`や`,`を含むMODEを未引用で渡すと1つのMODE引数として届かない場合があります。
+
+README/helpでは必ず次の形を使用してください。
+
+```bat
+chmod "u=rw,go=r" file
+chmod "u=rw,go=" private.key
+```
+
+symbolic parserの対応可否とcommand-line引数境界の問題を混同しないでください。
+
 ### `X`
 
 GNU semantics:
@@ -225,6 +257,23 @@ DACL丸ごとコピーとGNU `--reference`のmode copyは別物です。
 
 互換機能として追加する場合は擬似mode semanticsを優先し、ACL情報損失を明記してください。
 
+## v1.0.3 directory Raw ACL実装
+
+数値`777`以外のdirectory ACL再構成では、v1.0.3からWindows標準のWindows PowerShell 5.1を内部利用します。
+
+主に:
+
+- `RawSecurityDescriptor`
+- `RawAcl`
+- `CommonAce`
+- `SetNamedSecurityInfoW`
+
+を利用し、対象directoryのeffective MODE ACEとfuture-child templateを1つのDACLとして構成します。
+
+PowerShell 7 / `pwsh`や外部moduleは依存にしません。
+
+この実装を`icacls`だけへ戻す場合は、「同じ結果に見える」だけでは不十分です。parent独自inheritable ACE、target effective access、新規child、既存childの意味をすべて満たすことを実機で確認してください。
+
 ## 自己更新機能の不変条件
 
 `v1.0.2`以降の`--update`は配布経路そのものなので、通常のoption追加より厳しく扱います。
@@ -243,6 +292,8 @@ DACL丸ごとコピーとGNU `--reference`のmode copyは別物です。
 - v1.0.2以降のreleaseでは、前versionの**実配布updater**から次versionへのE2Eを必須とする
 - synthetic old versionによるversion比較テストを、実旧versionにupdaterが存在した証拠として扱わない
 
+v1.0.3では実配布v1.0.2 updaterからfinal v1.0.3 payloadへのE2EをWindows Server 2025で実施し、bytes完全一致とdestination DACL維持を確認済みです。
+
 ### `.update`と`chmod.bat`は同一release単位
 
 公開`main`では次の整合性を常に維持してください。
@@ -258,7 +309,7 @@ manifestだけ先行、payloadだけ先行という状態を`main`へ作らな�
 
 ### update source
 
-v1.0.2は次をcanonical sourceとします。
+v1.0.2以降は次をcanonical sourceとします。
 
 - `https://raw.githubusercontent.com/Osamix2000/chmod-for-windows/main/.update`
 - `https://raw.githubusercontent.com/Osamix2000/chmod-for-windows/main/chmod.bat`
@@ -280,7 +331,7 @@ v1.0.2は次をcanonical sourceとします。
 
 自己更新で`chmod.bat`を削除して新規作成しないでください。
 
-v1.0.2では`robocopy /COPY:D`によるdata-only overwriteを使い、既存destinationのDACLを保持します。
+v1.0.2以降では`robocopy /COPY:D`によるdata-only overwriteを使い、既存destinationのDACLを保持します。
 
 変更時は最低限:
 
@@ -293,7 +344,7 @@ v1.0.2では`robocopy /COPY:D`によるdata-only overwriteを使い、既存dest
 
 ### 実行中BAT自己書換え構造を壊さない
 
-v1.0.2はtarget `chmod.bat`を子の一時runnerからdata-only overwriteする。
+v1.0.2以降はtarget `chmod.bat`を子の一時runnerからdata-only overwriteする。
 
 親`cmd.exe`側では、runner起動後に必要なerror handling、成功表示、cleanup、`exit /b`を**同じ括弧blockの中**へ置き、target上書き前にそのblock全体がparseされる構造を利用している。
 
@@ -327,8 +378,8 @@ v1.0.2はtarget `chmod.bat`を子の一時runnerからdata-only overwriteする�
 
 ## 実装ポリシー
 
-- 可能な限りWindows標準コマンドで実装
-- 通常処理でPowerShellを必須依存にしない
+- 可能な限りWindows標準コマンド・標準APIで実装
+- 可能な範囲では`cmd.exe` / Windows標準コマンドを優先する。ただしv1.0.3の数値`777`以外のdirectory Raw ACL再構成ではWindows標準のWindows PowerShell 5.1を内部依存として使用する。PowerShell 7 / `pwsh`や外部moduleへ黙って置換しない
 - SID操作では表示名より数値SIDを優先
 - 人間向けローカライズ出力の文字列解析を避ける
 - `icacls`等は`%SystemRoot%\System32\...`の明示パスを優先
@@ -348,7 +399,7 @@ ACLロジックを変更した場合、最低限以下を一時NTFSディレク�
 - `+x`
 - `u+x`
 - `go-rwx`
-- `u=rw,go=r`
+- `"u=rw,go=r"`
 - SSH private key相当
 
 ### Directory
@@ -356,8 +407,10 @@ ACLロジックを変更した場合、最低限以下を一時NTFSディレク�
 - `700`
 - `755`
 - `a+rX`
+- 非`-R`変更前後で既存childのaccess ruleが意図せず変わらないこと
 - 新規child file
 - 新規child directory
+- 独自inheritable ACEを持つparentからfuture childへ継承され、target自身へ漏れないこと
 - copyして入れたfile
 - 同一volumeからmoveしたfile
 - 可能なら別volumeからmoveしたfile
@@ -375,6 +428,7 @@ ACLロジックを変更した場合、最低限以下を一時NTFSディレク�
 - 実際のopen/read/write/create/delete/rename
 - `(I)/(OI)/(CI)/(IO)/(NP)`
 - Owner
+- 必要に応じてSecurity Descriptor / access rule signature
 
 `ls -la`だけでACLテストを合格扱いにしないでください。
 
@@ -394,6 +448,8 @@ ACLロジックを変更した場合、最低限以下を一時NTFSディレク�
 
 全環境を検証できない場合は、未検証をドキュメントに明記します。
 
+v1.0.3のdirectory Raw ACL設計はWindows Server 2025 / build 26100 / NTFSで検証済みですが、Windows 10/11、旧Server、ReFS、SMBまで同一結果と断定しないでください。
+
 ## ドキュメント更新
 
 次の仕様を変更した場合はコードだけで完結させないでください。
@@ -404,6 +460,7 @@ ACLロジックを変更した場合、最低限以下を一時NTFSディレク�
 - inheritance behavior
 - recovery behavior
 - admin/SYSTEM safety policy
+- dependency
 - exit code
 - known limitation
 
@@ -428,6 +485,7 @@ versionを自動的に上げず、変更内容に応じて判断してくださ�
 - 同一pathへのwriteを並列実行しない
 - 書き込み後に再取得して検証
 - `chmod.bat`のCP932/CRLF維持を確認
+- release payload変更では`.update`とのversion/hash整合を確認
 
 を守ってください。
 
