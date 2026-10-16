@@ -13,12 +13,15 @@
 - [`update.md`](update.md)  
   `--update`自己更新の取得元、manifest、version判定、SHA-256検証、ACL保持、rollback、trust model、リリース時の不変条件。
 
+- [`ci.md`](ci.md)  
+  常設GitHub Actions CI、`github/actions` branchでのworkflow開発、常設CIへ含める検証とrelease専用検証の分離、mainへ取り込む条件。
+
 - [`v1.0.3.md`](v1.0.3.md)  
   v1.0.1以降のfile/directory制御フロー回帰、v1.0.3のdirectory自身とfuture-child ACL templateを分離する設計、Raw ACL適用方式、Windows PowerShell 5.1依存、Windows Server 2025での検証結果。
 
 ## 読み方
 
-一般仕様を確認する場合は`chmod.md`と`icacls.md`を両方参照し、version固有の実装判断は該当version資料も確認してください。
+一般仕様を確認する場合は`chmod.md`と`icacls.md`を両方参照し、version固有の実装判断は該当version資料も確認してください。CIやGitHub Actionsを変更する場合は`ci.md`も参照してください。
 
 ```text
 GNU/POSIX chmod semantics
